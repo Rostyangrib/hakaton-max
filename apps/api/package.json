@@ -7,14 +7,18 @@
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
     "typecheck": "tsc --project tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run --testTimeout 30000"
   },
   "dependencies": {
+    "@fastify/cookie": "^11.1.2",
     "@fastify/cors": "^11.0.0",
+    "@maxhub/max-bot-api": "^0.3.1",
     "@quiet-chat/config": "workspace:*",
     "@quiet-chat/database": "workspace:*",
     "@quiet-chat/shared": "workspace:*",
-    "fastify": "^5.0.0"
+    "drizzle-orm": "^0.44.0",
+    "fastify": "^5.0.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

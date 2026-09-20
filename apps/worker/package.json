@@ -10,8 +10,11 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@maxhub/max-bot-api": "^0.3.1",
     "@quiet-chat/config": "workspace:*",
-    "@quiet-chat/database": "workspace:*"
+    "@quiet-chat/database": "workspace:*",
+    "@quiet-chat/shared": "workspace:*",
+    "drizzle-orm": "^0.44.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
