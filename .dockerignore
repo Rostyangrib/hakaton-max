@@ -1,0 +1,16 @@
+.git
+.github
+.env
+.env.*
+!.env.example
+.obsidian
+node_modules
+**/node_modules
+dist
+**/dist
+coverage
+**/coverage
+*.log
+Умный_город.md
+Техническое задание.md
+

@@ -1,0 +1,31 @@
+import { z } from 'zod';
+
+const optionalString = z.preprocess(
+  (value) => (value === '' ? undefined : value),
+  z.string().min(1).optional(),
+);
+
+const environmentSchema = z.object({
+  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  HOST: z.string().default('127.0.0.1'),
+  PORT: z.coerce.number().int().min(1).max(65_535).default(3000),
+  WEB_ORIGIN: z.url().default('http://localhost:5173'),
+  DATABASE_URL: z.string().min(1).default('postgresql://quietchat:quietchat@localhost:5432/quietchat'),
+  WORKER_POLL_INTERVAL_MS: z.coerce.number().int().min(250).default(5_000),
+  HOME_TIMEZONE: z.string().min(1).default('Asia/Irkutsk'),
+  MAX_BOT_TOKEN: optionalString,
+  MAX_WEBHOOK_SECRET: optionalString,
+  MAX_HOME_CHAT_ID: optionalString,
+  MAX_HOME_CHAT_URL: optionalString,
+  MAX_API_BASE_URL: z.url().default('https://platform-api2.max.ru'),
+  SESSION_SECRET: optionalString,
+  YANDEX_CLOUD_FOLDER_ID: optionalString,
+  YANDEX_CLOUD_API_KEY: optionalString,
+  YANDEXGPT_MODEL_URI: optionalString,
+});
+
+export type AppConfig = z.infer<typeof environmentSchema>;
+
+export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppConfig {
+  return environmentSchema.parse(environment);
+}

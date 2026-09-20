@@ -1,0 +1,17 @@
+{
+  "name": "@quiet-chat/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "typecheck": "tsc --project tsconfig.json",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": { "zod": "^4.0.0" },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "vitest": "^4.0.0"
+  }
+}
+

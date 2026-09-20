@@ -1,0 +1,26 @@
+{
+  "name": "quiet-chat",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@12.5.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "pnpm typecheck && pnpm --filter @quiet-chat/web build",
+    "dev": "pnpm --parallel --filter @quiet-chat/api --filter @quiet-chat/worker --filter @quiet-chat/web dev",
+    "db:generate": "pnpm --filter @quiet-chat/database db:generate",
+    "db:migrate": "pnpm --filter @quiet-chat/database db:migrate",
+    "lint": "eslint .",
+    "test": "pnpm -r --if-present test",
+    "typecheck": "pnpm -r --if-present typecheck"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "eslint": "^9.0.0",
+    "globals": "^16.0.0",
+    "typescript": "^5.9.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^4.0.0"
+  }
+}
