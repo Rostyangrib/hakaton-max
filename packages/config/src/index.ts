@@ -22,6 +22,7 @@ const environmentSchema = z.object({
   SESSION_SECRET: optionalString,
   SESSION_TTL_SECONDS: z.coerce.number().int().min(300).max(86_400).default(3_600),
   MAX_INIT_DATA_MAX_AGE_SECONDS: z.coerce.number().int().min(60).max(3_600).default(600),
+  ALERT_ANTIFLOOD_MINUTES: z.coerce.number().int().min(1).max(1_440).default(15),
   YANDEX_CLOUD_FOLDER_ID: optionalString,
   YANDEX_CLOUD_API_KEY: optionalString,
   YANDEXGPT_MODEL_URI: optionalString,

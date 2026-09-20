@@ -27,11 +27,18 @@ services:
     build: .
     command: ["pnpm", "--filter", "@quiet-chat/api", "start"]
     environment:
-      NODE_ENV: production
+      NODE_ENV: ${NODE_ENV:-development}
       PORT: 3000
       HOST: 0.0.0.0
       WEB_ORIGIN: http://localhost:5173
       DATABASE_URL: postgresql://quietchat:quietchat@postgres:5432/quietchat
+      MAX_BOT_TOKEN: ${MAX_BOT_TOKEN:-}
+      MAX_WEBHOOK_SECRET: ${MAX_WEBHOOK_SECRET:-}
+      MAX_HOME_CHAT_ID: ${MAX_HOME_CHAT_ID:-}
+      MAX_HOME_CHAT_URL: ${MAX_HOME_CHAT_URL:-}
+      MAX_MINI_APP_URL: ${MAX_MINI_APP_URL:-http://localhost:5173}
+      SESSION_SECRET: ${SESSION_SECRET:-}
+      ALERT_ANTIFLOOD_MINUTES: ${ALERT_ANTIFLOOD_MINUTES:-15}
     ports:
       - "3000:3000"
     depends_on:
@@ -46,6 +53,11 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://quietchat:quietchat@postgres:5432/quietchat
       WORKER_POLL_INTERVAL_MS: 5000
+      MAX_BOT_TOKEN: ${MAX_BOT_TOKEN:-}
+      MAX_HOME_CHAT_ID: ${MAX_HOME_CHAT_ID:-}
+      MAX_MINI_APP_URL: ${MAX_MINI_APP_URL:-http://localhost:5173}
+      ALERT_ANTIFLOOD_MINUTES: ${ALERT_ANTIFLOOD_MINUTES:-15}
+      HOME_TIMEZONE: ${HOME_TIMEZONE:-Asia/Irkutsk}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -55,7 +67,7 @@ services:
     build: .
     command: ["pnpm", "--filter", "@quiet-chat/web", "start", "--host", "0.0.0.0"]
     environment:
-      VITE_API_BASE_URL: http://localhost:3000
+      VITE_API_URL: http://localhost:3000
     ports:
       - "5173:5173"
     depends_on:
@@ -65,4 +77,3 @@ services:
 
 volumes:
   postgres_data:
-

@@ -57,3 +57,13 @@ export interface ApiEnvelope<T> {
   error: { code: string; message: string } | null;
   requestId: string;
 }
+
+const visuallyEquivalentPlateLetters: Record<string, string> = {
+  A: 'А', B: 'В', E: 'Е', K: 'К', M: 'М', H: 'Н', O: 'О', P: 'Р', C: 'С', T: 'Т', Y: 'У', X: 'Х',
+};
+
+export function normalizeCarPlate(value: string): string | null {
+  const compact = value.normalize('NFKC').toUpperCase().replace(/[\s-]+/g, '');
+  const converted = [...compact].map((letter) => visuallyEquivalentPlateLetters[letter] ?? letter).join('');
+  return /^[АВЕКМНОРСТУХ]\d{3}[АВЕКМНОРСТУХ]{2}\d{2,3}$/u.test(converted) ? converted : null;
+}

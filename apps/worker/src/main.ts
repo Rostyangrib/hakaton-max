@@ -5,10 +5,21 @@ import { createDatabase, users } from '@quiet-chat/database';
 import { maxUpdateSchema } from '@quiet-chat/shared';
 
 import { createWelcomeKeyboard, welcomeText } from './menu.js';
+import { MessagePipeline } from './message-pipeline.js';
+import { PostgresMessageRepository } from './postgres-message-repository.js';
 
 const config = loadConfig();
 const database = createDatabase(config.DATABASE_URL);
 const bot = config.MAX_BOT_TOKEN ? new Bot(config.MAX_BOT_TOKEN) : null;
+const configuredHomeChatId = Number(config.MAX_HOME_CHAT_ID);
+const messagePipeline = bot && Number.isSafeInteger(configuredHomeChatId)
+  ? new MessagePipeline(
+      new PostgresMessageRepository(database, config.HOME_TIMEZONE),
+      bot.api,
+      configuredHomeChatId,
+      config.ALERT_ANTIFLOOD_MINUTES,
+    )
+  : null;
 let stopping = false;
 let polling = false;
 
@@ -26,6 +37,14 @@ function readUser(value: unknown): MaxUserPayload | null {
     first_name: value.first_name,
     ...(typeof value.last_name === 'string' ? { last_name: value.last_name } : {}),
   };
+}
+
+function isGroupMessageUpdate(update: Record<string, unknown>): boolean {
+  if (update.update_type === 'message_removed') return true;
+  if (update.update_type !== 'message_created' && update.update_type !== 'message_edited') return false;
+  const message = isRecord(update.message) ? update.message : null;
+  const recipient = message && isRecord(message.recipient) ? message.recipient : null;
+  return recipient?.chat_type === 'chat';
 }
 
 async function claimEvent(): Promise<ClaimedEvent | null> {
@@ -93,6 +112,11 @@ async function sendWelcome(user: MaxUserPayload): Promise<void> {
 
 async function processUpdate(payload: unknown): Promise<void> {
   const parsed = maxUpdateSchema.parse(payload);
+  if (messagePipeline && await messagePipeline.handle(parsed)) return;
+  if (!messagePipeline && isGroupMessageUpdate(parsed)) {
+    throw new Error('MAX_HOME_CHAT_ID is not configured');
+  }
+
   if (parsed.update_type === 'bot_started') {
     const user = readUser(parsed.user);
     if (!user) throw new Error('bot_started update has invalid user');
@@ -131,7 +155,7 @@ async function poll(): Promise<void> {
   polling = true;
   try {
     await database.check();
-    if (!bot || !config.MAX_MINI_APP_URL) return;
+    if (!bot) return;
     for (let processed = 0; processed < 25; processed += 1) {
       const event = await claimEvent();
       if (!event) break;

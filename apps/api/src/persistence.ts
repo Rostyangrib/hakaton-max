@@ -2,7 +2,7 @@ import { and, eq } from 'drizzle-orm';
 
 import type { createDatabase } from '@quiet-chat/database';
 import { homes, residentProfiles, users, webhookEvents } from '@quiet-chat/database';
-import type { MaxUpdate, MaxUser } from '@quiet-chat/shared';
+import { normalizeCarPlate, type MaxUpdate, type MaxUser } from '@quiet-chat/shared';
 
 import type { ProfileStore, WebhookInbox } from './contracts.js';
 
@@ -73,7 +73,7 @@ export function createPersistence(db: Database): ProfileStore & WebhookInbox {
         entrance: input.entrance,
         floor: input.floor ?? null,
         carPlateRaw: cleanNullable(input.carPlate),
-        carPlateNormalized: cleanNullable(input.carPlate)?.replace(/[^0-9A-Za-zА-Яа-я]/g, '').toUpperCase() ?? null,
+        carPlateNormalized: cleanNullable(input.carPlate) ? normalizeCarPlate(input.carPlate!) : null,
         carDescription: cleanNullable(input.carDescription),
         alertsEnabled: input.alertsEnabled,
         membershipVerifiedAt: verifiedAt,
