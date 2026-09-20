@@ -58,6 +58,12 @@ services:
       MAX_MINI_APP_URL: ${MAX_MINI_APP_URL:-http://localhost:5173}
       ALERT_ANTIFLOOD_MINUTES: ${ALERT_ANTIFLOOD_MINUTES:-15}
       HOME_TIMEZONE: ${HOME_TIMEZONE:-Asia/Irkutsk}
+      YANDEX_CLOUD_FOLDER_ID: ${YANDEX_CLOUD_FOLDER_ID:-}
+      YANDEX_CLOUD_API_KEY: ${YANDEX_CLOUD_API_KEY:-}
+      YANDEXGPT_MODEL_URI: ${YANDEXGPT_MODEL_URI:-}
+      YANDEXGPT_API_URL: ${YANDEXGPT_API_URL:-https://llm.api.cloud.yandex.net/foundationModels/v1/completion}
+      YANDEXGPT_TIMEOUT_MS: ${YANDEXGPT_TIMEOUT_MS:-12000}
+      SUMMARY_CACHE_TTL_SECONDS: ${SUMMARY_CACHE_TTL_SECONDS:-600}
     depends_on:
       migrate:
         condition: service_completed_successfully

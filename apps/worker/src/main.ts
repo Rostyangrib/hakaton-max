@@ -2,11 +2,15 @@ import { Bot } from '@maxhub/max-bot-api';
 import { eq } from 'drizzle-orm';
 import { loadConfig } from '@quiet-chat/config';
 import { createDatabase, users } from '@quiet-chat/database';
-import { maxUpdateSchema } from '@quiet-chat/shared';
+import { maxUpdateSchema, summaryPeriodSchema } from '@quiet-chat/shared';
 
-import { createWelcomeKeyboard, welcomeText } from './menu.js';
+import { createSummaryKeyboard, createWelcomeKeyboard, welcomeText } from './menu.js';
 import { MessagePipeline } from './message-pipeline.js';
 import { PostgresMessageRepository } from './postgres-message-repository.js';
+import { PostgresSummaryRepository } from './postgres-summary-repository.js';
+import { renderSummary } from './summary.js';
+import { SummaryAccessError, SummaryService } from './summary-service.js';
+import { YandexGptClient } from './yandex-gpt.js';
 
 const config = loadConfig();
 const database = createDatabase(config.DATABASE_URL);
@@ -18,6 +22,23 @@ const messagePipeline = bot && Number.isSafeInteger(configuredHomeChatId)
       bot.api,
       configuredHomeChatId,
       config.ALERT_ANTIFLOOD_MINUTES,
+    )
+  : null;
+const summaryModel = config.YANDEX_CLOUD_API_KEY && config.YANDEX_CLOUD_FOLDER_ID
+  ? new YandexGptClient({
+      apiKey: config.YANDEX_CLOUD_API_KEY,
+      folderId: config.YANDEX_CLOUD_FOLDER_ID,
+      ...(config.YANDEXGPT_MODEL_URI ? { modelUri: config.YANDEXGPT_MODEL_URI } : {}),
+      apiUrl: config.YANDEXGPT_API_URL,
+      timeoutMs: config.YANDEXGPT_TIMEOUT_MS,
+    })
+  : null;
+const summaryService = bot && Number.isSafeInteger(configuredHomeChatId)
+  ? new SummaryService(
+      new PostgresSummaryRepository(database),
+      summaryModel,
+      BigInt(configuredHomeChatId),
+      config.SUMMARY_CACHE_TTL_SECONDS,
     )
   : null;
 let stopping = false;
@@ -110,9 +131,43 @@ async function sendWelcome(user: MaxUserPayload): Promise<void> {
   });
 }
 
+async function processSummaryCallback(update: Record<string, unknown>): Promise<boolean> {
+  if (update.update_type !== 'message_callback' || !bot) return false;
+  const callback = isRecord(update.callback) ? update.callback : null;
+  const callbackMessage = isRecord(update.message) ? update.message : null;
+  const recipient = callbackMessage && isRecord(callbackMessage.recipient) ? callbackMessage.recipient : null;
+  const user = callback ? readUser(callback.user) : null;
+  const callbackId = callback?.callback_id;
+  const payload = callback?.payload;
+  if (!user || recipient?.chat_type !== 'dialog' || typeof callbackId !== 'string' || typeof payload !== 'string') return false;
+  const period = summaryPeriodSchema.safeParse(payload.startsWith('summary:') ? payload.slice(8) : '');
+  if (!period.success) return false;
+
+  await upsertUser(user, true);
+  await bot.api.answerOnCallback(callbackId, { message: { text: 'Готовлю сводку…' } }).catch(() => undefined);
+  if (!summaryService) throw new Error('MAX_HOME_CHAT_ID is not configured');
+  try {
+    const summary = await summaryService.generate(BigInt(user.user_id), period.data);
+    await bot.api.sendMessageToUser(user.user_id, renderSummary(summary), {
+      format: 'markdown',
+      attachments: [createSummaryKeyboard()],
+    });
+  } catch (error) {
+    if (!(error instanceof SummaryAccessError)) throw error;
+    const text = 'Сначала заполните профиль и подтвердите принадлежность к домовому чату.';
+    if (config.MAX_MINI_APP_URL) {
+      await bot.api.sendMessageToUser(user.user_id, text, { attachments: [createWelcomeKeyboard(config.MAX_MINI_APP_URL)] });
+    } else {
+      await bot.api.sendMessageToUser(user.user_id, text);
+    }
+  }
+  return true;
+}
+
 async function processUpdate(payload: unknown): Promise<void> {
   const parsed = maxUpdateSchema.parse(payload);
   if (messagePipeline && await messagePipeline.handle(parsed)) return;
+  if (await processSummaryCallback(parsed)) return;
   if (!messagePipeline && isGroupMessageUpdate(parsed)) {
     throw new Error('MAX_HOME_CHAT_ID is not configured');
   }

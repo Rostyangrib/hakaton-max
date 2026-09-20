@@ -52,6 +52,36 @@ export type ResidentProfile = z.infer<typeof residentProfileSchema>;
 export type MaxUser = z.infer<typeof maxUserSchema>;
 export type MaxUpdate = z.infer<typeof maxUpdateSchema>;
 
+export const summaryPeriodSchema = z.enum(['today', 'week', 'month']);
+
+export const summaryItemSchema = z.object({
+  text: z.string().trim().min(1).max(500),
+  sourceMessageIds: z.array(z.string().min(1)).min(1).max(20),
+});
+
+export const summaryCategoriesSchema = z.object({
+  housing: z.array(summaryItemSchema).max(10),
+  yard: z.array(summaryItemSchema).max(10),
+  community: z.array(summaryItemSchema).max(10),
+}).strict();
+
+export const summaryResultSchema = summaryCategoriesSchema.extend({
+  period: summaryPeriodSchema,
+  periodFrom: z.string().datetime(),
+  periodTo: z.string().datetime(),
+  messageCount: z.number().int().nonnegative(),
+  filteredCount: z.number().int().nonnegative(),
+  savedMinutes: z.number().int().nonnegative(),
+  generatedAt: z.string().datetime(),
+  mode: z.enum(['yandexgpt', 'fallback']),
+  cached: z.boolean(),
+}).strict();
+
+export type SummaryPeriod = z.infer<typeof summaryPeriodSchema>;
+export type SummaryItem = z.infer<typeof summaryItemSchema>;
+export type SummaryCategories = z.infer<typeof summaryCategoriesSchema>;
+export type SummaryResult = z.infer<typeof summaryResultSchema>;
+
 export interface ApiEnvelope<T> {
   data: T | null;
   error: { code: string; message: string } | null;

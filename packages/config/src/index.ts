@@ -26,6 +26,9 @@ const environmentSchema = z.object({
   YANDEX_CLOUD_FOLDER_ID: optionalString,
   YANDEX_CLOUD_API_KEY: optionalString,
   YANDEXGPT_MODEL_URI: optionalString,
+  YANDEXGPT_API_URL: z.url().default('https://llm.api.cloud.yandex.net/foundationModels/v1/completion'),
+  YANDEXGPT_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(30_000).default(12_000),
+  SUMMARY_CACHE_TTL_SECONDS: z.coerce.number().int().min(60).max(86_400).default(600),
 });
 
 export type AppConfig = z.infer<typeof environmentSchema>;
