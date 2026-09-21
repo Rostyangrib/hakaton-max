@@ -1,0 +1,14 @@
+{
+  "lifecycleRules": [
+    {
+      "id": "delete-postgres-backups-after-seven-days",
+      "enabled": true,
+      "filter": {
+        "prefix": "postgres/"
+      },
+      "expiration": {
+        "days": "7"
+      }
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+FROM alpine:3.22
+
+RUN apk add --no-cache aws-cli postgresql16-client tzdata
+
+COPY deploy/scripts /opt/quiet-chat/scripts
+
+RUN chmod +x /opt/quiet-chat/scripts/*.sh
+
+WORKDIR /opt/quiet-chat

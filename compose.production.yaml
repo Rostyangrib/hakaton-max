@@ -1,0 +1,185 @@
+name: quiet-chat
+
+x-app-environment: &app-environment
+  NODE_ENV: production
+  DATABASE_URL: postgresql://quietchat:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/quietchat
+  MAX_BOT_TOKEN: ${MAX_BOT_TOKEN:?MAX_BOT_TOKEN is required}
+  MAX_HOME_CHAT_ID: ${MAX_HOME_CHAT_ID:-}
+  MAX_MINI_APP_URL: https://${PUBLIC_HOST:?PUBLIC_HOST is required}
+  MAX_API_BASE_URL: ${MAX_API_BASE_URL:-https://platform-api2.max.ru}
+  HOME_TIMEZONE: ${HOME_TIMEZONE:-Asia/Irkutsk}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: quietchat
+      POSTGRES_USER: quietchat
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quietchat -d quietchat"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - backend
+    restart: unless-stopped
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.production
+      target: app
+    command: ["pnpm", "db:migrate"]
+    environment:
+      DATABASE_URL: postgresql://quietchat:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/quietchat
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - backend
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.production
+      target: app
+    command: ["pnpm", "--filter", "@quiet-chat/api", "start"]
+    environment:
+      <<: *app-environment
+      HOST: 0.0.0.0
+      PORT: 3000
+      WEB_ORIGIN: https://${PUBLIC_HOST:?PUBLIC_HOST is required}
+      MAX_WEBHOOK_SECRET: ${MAX_WEBHOOK_SECRET:?MAX_WEBHOOK_SECRET is required}
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
+      SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-3600}
+      MAX_INIT_DATA_MAX_AGE_SECONDS: ${MAX_INIT_DATA_MAX_AGE_SECONDS:-600}
+    expose:
+      - "3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - backend
+      - edge
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.production
+      target: app
+    command: ["pnpm", "--filter", "@quiet-chat/worker", "start"]
+    environment:
+      <<: *app-environment
+      WORKER_POLL_INTERVAL_MS: ${WORKER_POLL_INTERVAL_MS:-5000}
+      ALERT_ANTIFLOOD_MINUTES: ${ALERT_ANTIFLOOD_MINUTES:-15}
+      YANDEX_CLOUD_FOLDER_ID: ${YANDEX_CLOUD_FOLDER_ID:?YANDEX_CLOUD_FOLDER_ID is required}
+      YANDEX_CLOUD_API_KEY: ${YANDEX_CLOUD_API_KEY:?YANDEX_CLOUD_API_KEY is required}
+      YANDEXGPT_MODEL_URI: ${YANDEXGPT_MODEL_URI:-}
+      YANDEXGPT_API_URL: ${YANDEXGPT_API_URL:-https://llm.api.cloud.yandex.net/foundationModels/v1/completion}
+      YANDEXGPT_TIMEOUT_MS: ${YANDEXGPT_TIMEOUT_MS:-12000}
+      SUMMARY_CACHE_TTL_SECONDS: ${SUMMARY_CACHE_TTL_SECONDS:-600}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - backend
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.production
+      target: web
+      args:
+        VITE_API_URL: ""
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST:?PUBLIC_HOST is required}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_started
+    networks:
+      - edge
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  cleanup:
+    build:
+      context: .
+      dockerfile: Dockerfile.maintenance
+    command: ["/opt/quiet-chat/scripts/cleanup-loop.sh"]
+    environment:
+      DATABASE_URL: postgresql://quietchat:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/quietchat
+      MESSAGE_RETENTION_DAYS: ${MESSAGE_RETENTION_DAYS:-30}
+      WEBHOOK_RETENTION_DAYS: ${WEBHOOK_RETENTION_DAYS:-7}
+      SUMMARY_RETENTION_DAYS: ${SUMMARY_RETENTION_DAYS:-30}
+      MAINTENANCE_INTERVAL_SECONDS: ${MAINTENANCE_INTERVAL_SECONDS:-86400}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - backend
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  backup:
+    build:
+      context: .
+      dockerfile: Dockerfile.maintenance
+    command: ["/opt/quiet-chat/scripts/backup-loop.sh"]
+    environment:
+      DATABASE_URL: postgresql://quietchat:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/quietchat
+      BACKUP_BUCKET: ${BACKUP_BUCKET:?BACKUP_BUCKET is required}
+      BACKUP_PREFIX: ${BACKUP_PREFIX:-postgres}
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID is required}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY is required}
+      AWS_DEFAULT_REGION: ru-central1
+      AWS_ENDPOINT_URL: https://storage.yandexcloud.net
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - backend
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  backend:
+    internal: true
+  edge:

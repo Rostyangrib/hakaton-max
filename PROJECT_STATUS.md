@@ -2,9 +2,9 @@
 
 ## Текущий этап
 
-**Этап 4 — AI-сводки: реализован, ожидает ревью пользователя.**
+**Этап 5 — развёртывание и безопасность: в работе, подготовлено развёртывание из GitHub.**
 
-Этап 5 и коммит не начинать без явного указания пользователя.
+Облачные ресурсы созданы. Пользователь явно разрешил промежуточный коммит и переход на доставку кода из GitHub.
 
 ## Прогресс
 
@@ -78,6 +78,32 @@
 - [x] TypeScript, ESLint, 40 Vitest-тестов, production-сборка web и `docker compose config` проходят.
 - [ ] Реальный вызов YandexGPT и end-to-end сценарий MAX не выполнены без локального `.env`, chat ID и публичного HTTPS webhook.
 
+### Этап 5
+
+- [x] Подготовлен production Docker Compose для Caddy, API, worker, PostgreSQL, очистки и резервного копирования.
+- [x] PostgreSQL изолирован во внутренней Docker-сети и не публикует порт на хосте.
+- [x] Caddy настроен как единственная публичная точка входа на 80/443 с автоматическим HTTPS.
+- [x] Подготовлен временный hostname через `sslip.io`, не требующий покупки домена.
+- [x] Добавлены ежедневная очистка сообщений (30 дней), webhook-событий (7 дней) и сводок (30 дней).
+- [x] Добавлен ежедневный `pg_dump` в закрытый Object Storage bucket и lifecycle удаления через 7 дней.
+- [x] Добавлены production env-шаблон без секретов, deploy-скрипт и инструкция восстановления.
+- [x] Установлен официальный Yandex Cloud CLI 1.35.1 для Windows.
+- [x] `docker compose config` production-стека и синтаксис lifecycle JSON прошли локальную проверку.
+- [x] Пользователь выполнил интерактивную авторизацию `yc init`; доступ к нужному каталогу проверен.
+- [x] Созданы service account `quiet-chat-vm`, закрытый backup-bucket с лимитом 5 ГиБ, lifecycle 7 дней, Lockbox с deletion protection и статический IP.
+- [x] Временный hostname `81-26-184-200.sslip.io` проверен через DNS и указывает на зарезервированный IP.
+- [x] Секреты БД, сессии и webhook сгенерированы без вывода значений; Object Storage key помещён прямо в Lockbox.
+- [x] Добавлены безопасная материализация `.env.production` из instance service account и bootstrap Ubuntu VM.
+- [ ] Отдельная VPC не создана: квота `vpc.networks.count` исчерпана; будет использована существующая `default` VPC с отдельной security group.
+- [x] Создана security group `quiet-chat-sg`: HTTP/HTTPS публичны, исходящий трафик разрешён, SSH полностью закрыт.
+- [x] Создана и запущена обычная VM `quiet-chat`: `standard-v3`, 2 vCPU × 20%, 2 ГБ RAM, HDD 20 ГБ, Ubuntu 24.04.
+- [x] Для VM применён выбранный пользователем `id_ed25519_second.pub`; password-секрет в проект не добавлялся.
+- [x] От прямого SSH-деплоя отказались: исходящий адрес Codex отличается от IP пользователя; доставка кода переведена на GitHub и cloud-init.
+- [ ] VM пересоздана с исправленным bootstrap, но репозиторий и production-стек ещё не развёрнуты.
+- [ ] Не выполнены развёртывание, HTTPS health-check, backup/restore smoke test и регистрация MAX webhook.
+- [ ] Для production необходимо отозвать ранее отправленные в чат MAX token и Yandex API key и создать новые значения.
+- [ ] Для полного MAX E2E нужен тестовый групповой чат и `MAX_HOME_CHAT_ID`.
+
 ## Принятые решения
 
 - Все сообщения Git-коммитов пишутся на русском языке.
@@ -98,6 +124,12 @@
 - Ответ YandexGPT принимается только как строгий JSON трёх категорий со ссылками на известные ID источников.
 - Кэш сводок хранится в существующей таблице `summary_jobs`; новая миграция для этапа 4 не требуется.
 - При недоступности модели пользователь получает явно помеченную резервную сводку.
+- Production-контур разворачивается на одной обычной Ubuntu VM в `ru-central1-d` (2 vCPU × 20%, 2 ГБ RAM, 2 ГБ swap, HDD 20 ГБ) с Caddy и Docker Compose.
+- До покупки домена используется `PUBLIC_IP.sslip.io`; Caddy выпускает публичный TLS-сертификат автоматически.
+- PostgreSQL доступен только сервисам внутренней Docker-сети; снаружи открываются только SSH и HTTPS/HTTP.
+- Production-секреты хранятся в Yandex Lockbox и материализуются только в локальный `.env.production` на VM.
+- Резервные копии PostgreSQL хранятся в закрытом Object Storage bucket 7 дней.
+- Из-за исчерпанной квоты сетей VM использует существующую `default` VPC; входящий трафик ограничивается отдельной security group, а PostgreSQL — внутренней Docker-сетью.
 
 ## Структура проекта
 
@@ -115,8 +147,13 @@
 │   ├── MAX_INTEGRATION.md
 │   ├── ALERTS.md
 │   ├── AI_SUMMARIES.md
+│   ├── DEPLOYMENT.md
 │   └── MVP_SPEC.md
+├── deploy/         # Caddy, backup/cleanup/deploy scripts, Object Storage lifecycle
 ├── Dockerfile
+├── Dockerfile.production
+├── Dockerfile.maintenance
+├── compose.production.yaml
 ├── compose.yaml
 └── PROJECT_STATUS.md
 ```
@@ -130,18 +167,19 @@
 - `pnpm build` — typecheck и production-сборка Mini App.
 - `pnpm dev` — запустить API, worker и web.
 - `docker compose up --build` — запустить локальный стек.
+- `docker compose --env-file .env.production -f compose.production.yaml config` — проверить production Compose.
+- `sh deploy/deploy.sh` — обновить и запустить production-стек на VM.
 
-## Созданные и изменённые файлы этапа 4
+## Созданные и изменённые файлы текущего этапа
 
-- `apps/worker/src/summary.ts`, `summary.test.ts` — периоды, подготовка, fallback и формат MAX-сообщения.
-- `apps/worker/src/yandex-gpt.ts`, `yandex-gpt.test.ts` — HTTP-клиент, JSON Schema, map-reduce и проверка источников.
-- `apps/worker/src/summary-service.ts`, `summary-service.test.ts` — кэш, оркестрация AI/fallback и контроль доступа.
-- `apps/worker/src/postgres-summary-repository.ts` — выборка сообщений и хранение `summary_jobs`.
-- `apps/worker/src/main.ts`, `menu.ts`, `menu.test.ts` — callback-кнопки и личная доставка сводки.
-- `packages/shared/src/index.ts` — Zod-контракты сводки.
-- `.env.example`, `packages/config/src/index.ts`, `compose.yaml` — настройки YandexGPT и TTL кэша.
-- `.gitignore` — локальное хранилище pnpm исключено из Git.
-- `docs/AI_SUMMARIES.md` — устройство, конфигурация и ограничения AI-сводок.
+- `compose.production.yaml` — production-сервисы, сети, health dependencies и секреты через env.
+- `Dockerfile.production`, `Dockerfile.maintenance` — образы приложений/Caddy и обслуживания.
+- `deploy/Caddyfile` — HTTPS gateway и раздача Mini App.
+- `deploy/scripts/*.sh`, `deploy/quiet-chat-deploy.service` — deploy, bootstrap, materialize-env, очистка, резервное копирование и systemd-запуск.
+- `deploy/object-storage-lifecycle.json` — удаление backup-объектов через 7 дней.
+- `.env.production.example` — безопасный шаблон production-конфигурации.
+- `docs/DEPLOYMENT.md` — топология, порядок развёртывания, эксплуатация и восстановление.
+- `.gitignore`, `.dockerignore` — безопасное исключение production env при сохранении шаблона.
 
 ## Известные ограничения и ошибки
 
@@ -154,14 +192,17 @@
 - Полная Docker-сборка остаётся непроверенной из-за недоступного Linux engine Docker Desktop в этапе 1.
 - Первый sandbox-запуск `pnpm test` упал только на запрете чтения Vite-конфига; повтор вне sandbox прошёл полностью.
 - В текущем Codex runtime команда `pnpm` пытается интерактивно сменить pnpm 11 на указанный в проекте 12.5.1; проверки этапа 4 выполнены напрямую установленными TypeScript, ESLint, Vitest и Vite без изменения зависимостей.
+- Зарезервированный публичный IPv4 и запущенная VM уже созданы и могут тарифицироваться Yandex Cloud.
+- Квота отдельных VPC исчерпана (лимит 2, использование 2), поэтому архитектура адаптирована под существующую сеть без снижения сетевой изоляции сервисов.
+- Тестовый групповой чат MAX ещё не создан, поэтому chat ID и полный E2E пока недоступны.
 
 ## Незакоммиченные изменения
 
-Все файлы этапа 4 находятся в рабочем дереве. Коммит не выполнялся. Перед коммитом требуется явная команда пользователя; сообщение коммита должно быть на русском языке.
+В рабочем дереве находятся только файлы этапа 5; пользователь разрешил промежуточный коммит. Сообщение коммита должно быть на русском языке.
 
 ## Следующий конкретный шаг
 
-После ревью пользователя: либо исправить замечания/выполнить отдельно санкционированный коммит, либо по явному одобрению начать этап 5 — развёртывание и безопасность.
+Закоммитить и отправить файлы этапа 5 в `feature/quiet-chat-mvp`, затем через cloud-init клонировать эту ветку на VM. После замены маркеров MAX/Yandex в Lockbox развернуть стек и выполнить HTTPS/backup проверки.
 
 ## Запрещено добавлять в Git
 
