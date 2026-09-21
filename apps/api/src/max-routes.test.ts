@@ -89,3 +89,34 @@ describe('profile routes', () => {
     expect(profileServices.profiles.saveProfile).toHaveBeenCalledOnce();
   });
 });
+
+describe('token auth route', () => {
+  it('authenticates user by valid signed token and sets session cookie', async () => {
+    const profileServices = services({
+      profiles: {
+        ...services().profiles,
+        getUser: vi.fn(async () => ({ displayName: 'Ростислав Затопляев' })),
+      },
+    });
+    const app = await buildApp({ config: config(), databaseCheck: async () => {}, services: profileServices });
+    apps.push(app);
+
+    const validToken = createSession(215608884n, 'session-secret-with-enough-entropy', 3_600);
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/auth/token',
+      payload: { token: validToken },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data.displayName).toBe('Ростислав Затопляев');
+    expect(response.headers['set-cookie']).toContain('quietchat_session=');
+
+    const invalidResponse = await app.inject({
+      method: 'POST',
+      url: '/api/auth/token',
+      payload: { token: 'invalid.token' },
+    });
+    expect(invalidResponse.statusCode).toBe(401);
+  });
+});
+

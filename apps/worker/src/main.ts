@@ -8,6 +8,7 @@ import { createSummaryKeyboard, createWelcomeKeyboard, welcomeText } from './men
 import { MessagePipeline } from './message-pipeline.js';
 import { PostgresMessageRepository } from './postgres-message-repository.js';
 import { PostgresSummaryRepository } from './postgres-summary-repository.js';
+import { createSession } from './session.js';
 import { renderSummary } from './summary.js';
 import { SummaryAccessError, SummaryService } from './summary-service.js';
 import { YandexGptClient } from './yandex-gpt.js';
@@ -137,16 +138,25 @@ async function upsertUser(user: MaxUserPayload, started: boolean): Promise<void>
     });
 }
 
+function getUserDirectUrl(userId: number): string | undefined {
+  if (!config.MAX_MINI_APP_URL) return undefined;
+  if (!config.SESSION_SECRET) return config.MAX_MINI_APP_URL;
+  const token = createSession(BigInt(userId), config.SESSION_SECRET, config.SESSION_TTL_SECONDS);
+  const base = config.MAX_MINI_APP_URL.replace(/\/+$/, '');
+  return `${base}/?token=${token}`;
+}
+
 async function sendWelcome(user: MaxUserPayload): Promise<void> {
   if (!bot) throw new Error('MAX bot is not configured');
+  const directUrl = getUserDirectUrl(user.user_id);
   const keyboard = config.MAX_MINI_APP_URL
-    ? createWelcomeKeyboard(botUsername, config.MAX_MINI_APP_URL, botContactId)
+    ? createWelcomeKeyboard(botUsername, directUrl, botContactId)
     : undefined;
   try {
     await bot.api.sendMessageToUser(user.user_id, welcomeText, keyboard ? { attachments: [keyboard] } : undefined);
   } catch (error) {
-    if (config.MAX_MINI_APP_URL) {
-      await bot.api.sendMessageToUser(user.user_id, `${welcomeText}\n\nОткрыть профиль: ${config.MAX_MINI_APP_URL}`);
+    if (directUrl) {
+      await bot.api.sendMessageToUser(user.user_id, `${welcomeText}\n\nЗаполнить профиль: ${directUrl}`);
       return;
     }
     throw error;
@@ -178,11 +188,12 @@ async function processSummaryCallback(update: Record<string, unknown>): Promise<
     if (!(error instanceof SummaryAccessError)) throw error;
     const text = 'Сначала заполните профиль и подтвердите принадлежность к домовому чату.';
     if (config.MAX_MINI_APP_URL) {
-      const keyboard = createWelcomeKeyboard(botUsername, config.MAX_MINI_APP_URL, botContactId);
+      const directUrl = getUserDirectUrl(user.user_id);
+      const keyboard = createWelcomeKeyboard(botUsername, directUrl, botContactId);
       try {
         await bot.api.sendMessageToUser(user.user_id, text, { attachments: [keyboard] });
       } catch {
-        await bot.api.sendMessageToUser(user.user_id, `${text}\n\nОткрыть профиль: ${config.MAX_MINI_APP_URL}`);
+        await bot.api.sendMessageToUser(user.user_id, `${text}\n\nЗаполнить профиль: ${directUrl}`);
       }
     } else {
       await bot.api.sendMessageToUser(user.user_id, text);

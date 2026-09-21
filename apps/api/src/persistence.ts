@@ -96,6 +96,14 @@ export function createPersistence(db: Database): ProfileStore & WebhookInbox {
         .returning({ id: residentProfiles.id });
       return deleted.length > 0;
     },
+    async getUser(maxUserId) {
+      const [user] = await db
+        .select({ displayName: users.displayName })
+        .from(users)
+        .where(eq(users.maxUserId, maxUserId))
+        .limit(1);
+      return user ?? null;
+    },
     async enqueue(eventKey: string, update: MaxUpdate) {
       const inserted = await db
         .insert(webhookEvents)

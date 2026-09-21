@@ -18,6 +18,7 @@ import type { ApiServices } from './contracts.js';
 
 const sessionCookie = 'quietchat_session';
 const authBodySchema = z.object({ initData: z.string().min(1).max(16_384) });
+const authTokenBodySchema = z.object({ token: z.string().min(1).max(16_384) });
 
 export interface AppDependencies {
   config: AppConfig;
@@ -104,6 +105,33 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
       }
       throw error;
     }
+  });
+
+  app.post('/api/auth/token', async (request, reply) => {
+    const parsed = authTokenBodySchema.safeParse(request.body);
+    const { SESSION_SECRET: sessionSecret } = dependencies.config;
+    if (!dependencies.services || !sessionSecret) {
+      return fail(reply, 503, request.id, 'MAX_NOT_CONFIGURED', 'MAX integration is not configured');
+    }
+    if (!parsed.success) return fail(reply, 400, request.id, 'INVALID_REQUEST', 'token is required');
+
+    const maxUserId = verifySession(parsed.data.token, sessionSecret);
+    if (!maxUserId) {
+      return fail(reply, 401, request.id, 'INVALID_TOKEN', 'Token is invalid or expired');
+    }
+
+    const user = dependencies.services.profiles.getUser
+      ? await dependencies.services.profiles.getUser(maxUserId)
+      : null;
+
+    reply.setCookie(sessionCookie, parsed.data.token, {
+      httpOnly: true,
+      secure: dependencies.config.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      maxAge: dependencies.config.SESSION_TTL_SECONDS,
+    });
+    return reply.code(200).send(envelope(request.id, { displayName: user?.displayName ?? 'Жилец' }));
   });
 
   async function profileContext(request: { id: string; cookies: Record<string, string | undefined> }, reply: FastifyReply) {

@@ -53,22 +53,34 @@ export function App() {
   const [displayName, setDisplayName] = useState('');
 
   useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token') || new URLSearchParams(window.location.hash.slice(1)).get('token');
+
     const bridge = window.WebApp;
     bridge?.ready?.();
     bridge?.expand?.();
     const initData = bridge?.initData;
-    if (!initData) {
+
+    if (!initData && !token) {
       setPhase('error');
-      setMessage('Откройте профиль кнопкой в личном диалоге с ботом MAX.');
+      setMessage('Откройте профиль кнопкой или ссылкой в диалоге с ботом MAX.');
       return;
     }
 
     void (async () => {
       try {
-        const auth = await api<{ displayName: string }>('/api/auth/max', {
-          method: 'POST',
-          body: JSON.stringify({ initData }),
-        });
+        let auth: { displayName: string };
+        if (token) {
+          auth = await api<{ displayName: string }>('/api/auth/token', {
+            method: 'POST',
+            body: JSON.stringify({ token }),
+          });
+        } else {
+          auth = await api<{ displayName: string }>('/api/auth/max', {
+            method: 'POST',
+            body: JSON.stringify({ initData }),
+          });
+        }
         setDisplayName(auth.displayName);
         const profile = await api<ResidentProfile | null>('/api/profile');
         setForm(fromProfile(profile));

@@ -10,6 +10,7 @@ export interface ProfileStore {
     verifiedAt: Date,
   ): Promise<ResidentProfile>;
   deleteProfile(maxUserId: bigint, maxChatId: bigint): Promise<boolean>;
+  getUser?(maxUserId: bigint): Promise<{ displayName: string | null } | null>;
 }
 
 export interface WebhookInbox {
