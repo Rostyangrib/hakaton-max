@@ -59,6 +59,14 @@ describe('MAX webhook', () => {
     });
     expect(accepted.statusCode).toBe(202);
     expect(webhookInbox.enqueue).toHaveBeenCalledOnce();
+
+    const platformUpdate = await app.inject({
+      method: 'POST',
+      url: '/webhooks/max',
+      headers: { 'x-max-bot-api-secret': 'webhook-secret' },
+      payload: { update_type: 'message_read', timestamp: 2 },
+    });
+    expect(platformUpdate.statusCode).toBe(202);
   });
 });
 

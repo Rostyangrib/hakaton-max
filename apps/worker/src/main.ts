@@ -41,6 +41,17 @@ const summaryService = bot && Number.isSafeInteger(configuredHomeChatId)
       config.SUMMARY_CACHE_TTL_SECONDS,
     )
   : null;
+let botUsername = config.MAX_BOT_USERNAME || 'se14396800_bot';
+if (bot) {
+  bot.api
+    .getMyInfo()
+    .then((info) => {
+      if (info?.username) botUsername = info.username;
+    })
+    .catch((error) => {
+      console.warn(JSON.stringify({ level: 'warn', service: 'worker', message: 'Failed to fetch bot info on start', error: String(error) }));
+    });
+}
 let stopping = false;
 let polling = false;
 
@@ -125,10 +136,19 @@ async function upsertUser(user: MaxUserPayload, started: boolean): Promise<void>
 }
 
 async function sendWelcome(user: MaxUserPayload): Promise<void> {
-  if (!bot || !config.MAX_MINI_APP_URL) throw new Error('MAX bot or mini-app URL is not configured');
-  await bot.api.sendMessageToUser(user.user_id, welcomeText, {
-    attachments: [createWelcomeKeyboard(config.MAX_MINI_APP_URL)],
-  });
+  if (!bot) throw new Error('MAX bot is not configured');
+  const keyboard = config.MAX_MINI_APP_URL
+    ? createWelcomeKeyboard(botUsername, config.MAX_MINI_APP_URL)
+    : undefined;
+  try {
+    await bot.api.sendMessageToUser(user.user_id, welcomeText, keyboard ? { attachments: [keyboard] } : undefined);
+  } catch (error) {
+    if (config.MAX_MINI_APP_URL) {
+      await bot.api.sendMessageToUser(user.user_id, `${welcomeText}\n\nОткрыть профиль: ${config.MAX_MINI_APP_URL}`);
+      return;
+    }
+    throw error;
+  }
 }
 
 async function processSummaryCallback(update: Record<string, unknown>): Promise<boolean> {
@@ -156,7 +176,12 @@ async function processSummaryCallback(update: Record<string, unknown>): Promise<
     if (!(error instanceof SummaryAccessError)) throw error;
     const text = 'Сначала заполните профиль и подтвердите принадлежность к домовому чату.';
     if (config.MAX_MINI_APP_URL) {
-      await bot.api.sendMessageToUser(user.user_id, text, { attachments: [createWelcomeKeyboard(config.MAX_MINI_APP_URL)] });
+      const keyboard = createWelcomeKeyboard(botUsername, config.MAX_MINI_APP_URL);
+      try {
+        await bot.api.sendMessageToUser(user.user_id, text, { attachments: [keyboard] });
+      } catch {
+        await bot.api.sendMessageToUser(user.user_id, `${text}\n\nОткрыть профиль: ${config.MAX_MINI_APP_URL}`);
+      }
     } else {
       await bot.api.sendMessageToUser(user.user_id, text);
     }

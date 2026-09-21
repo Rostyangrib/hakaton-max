@@ -31,18 +31,7 @@ export const maxUserSchema = z.object({
 
 export const maxUpdateSchema = z
   .object({
-    update_type: z.enum([
-      'bot_added',
-      'bot_removed',
-      'bot_started',
-      'bot_stopped',
-      'message_callback',
-      'message_created',
-      'message_edited',
-      'message_removed',
-      'user_added',
-      'user_removed',
-    ]),
+    update_type: z.string().min(1),
     timestamp: z.number().int().nonnegative(),
   })
   .passthrough();

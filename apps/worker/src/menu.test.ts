@@ -13,4 +13,12 @@ describe('private welcome menu', () => {
     ]));
     expect(welcomeText).toContain('только сюда, в личный диалог');
   });
+
+  it('supports passing bot username and direct URL', () => {
+    const keyboard = createWelcomeKeyboard('se14396800_bot', 'https://example.test/profile');
+    expect(keyboard.payload.buttons.flat()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'open_app', text: 'Открыть профиль', web_app: 'se14396800_bot' }),
+      expect.objectContaining({ type: 'link', text: 'В браузере', url: 'https://example.test/profile' }),
+    ]));
+  });
 });

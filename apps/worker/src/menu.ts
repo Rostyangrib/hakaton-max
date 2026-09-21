@@ -8,9 +8,18 @@ export const welcomeText = [
   'Также здесь можно получить краткую сводку событий дома.',
 ].join('\n');
 
-export function createWelcomeKeyboard(miniAppUrl: string) {
+export function createWelcomeKeyboard(appTarget: string, directUrl?: string) {
+  const isUrl = appTarget.startsWith('http://') || appTarget.startsWith('https://');
+  const webApp = isUrl ? 'se14396800_bot' : appTarget;
+  const webUrl = directUrl ?? (isUrl ? appTarget : undefined);
+
+  const topRow = [Keyboard.button.openApp('Открыть профиль', webApp)];
+  if (webUrl) {
+    topRow.push(Keyboard.button.link('В браузере', webUrl));
+  }
+
   return Keyboard.inlineKeyboard([
-    [Keyboard.button.openApp('Открыть профиль', miniAppUrl)],
+    topRow,
     ...createSummaryButtons(),
   ]);
 }

@@ -14,6 +14,7 @@ const environmentSchema = z.object({
   WORKER_POLL_INTERVAL_MS: z.coerce.number().int().min(250).default(5_000),
   HOME_TIMEZONE: z.string().min(1).default('Asia/Irkutsk'),
   MAX_BOT_TOKEN: optionalString,
+  MAX_BOT_USERNAME: optionalString,
   MAX_WEBHOOK_SECRET: optionalString,
   MAX_HOME_CHAT_ID: optionalString,
   MAX_HOME_CHAT_URL: optionalString,

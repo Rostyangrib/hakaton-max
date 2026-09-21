@@ -69,7 +69,10 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     if (!dependencies.services) return fail(reply, 503, request.id, 'SERVICE_UNAVAILABLE', 'Webhook storage is unavailable');
 
     const parsed = maxUpdateSchema.safeParse(request.body);
-    if (!parsed.success) return fail(reply, 400, request.id, 'INVALID_UPDATE', 'MAX update has invalid format');
+    if (!parsed.success) {
+      request.log.warn({ error: parsed.error, body: request.body }, 'MAX update has invalid format');
+      return fail(reply, 400, request.id, 'INVALID_UPDATE', 'MAX update has invalid format');
+    }
     const eventKey = createHash('sha256').update(JSON.stringify(parsed.data)).digest('hex');
     const accepted = await dependencies.services.webhookInbox.enqueue(eventKey, parsed.data);
     return reply.code(202).send(envelope(request.id, { accepted, duplicate: !accepted }));
