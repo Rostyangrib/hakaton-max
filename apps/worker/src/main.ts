@@ -42,15 +42,17 @@ const summaryService = bot && Number.isSafeInteger(configuredHomeChatId)
     )
   : null;
 let botUsername = config.MAX_BOT_USERNAME || 'se14396800_bot';
-if (bot) {
-  bot.api
-    .getMyInfo()
-    .then((info) => {
-      if (info?.username) botUsername = info.username;
-    })
-    .catch((error) => {
-      console.warn(JSON.stringify({ level: 'warn', service: 'worker', message: 'Failed to fetch bot info on start', error: String(error) }));
-    });
+let botContactId: number | undefined;
+
+async function initBotInfo(): Promise<void> {
+  if (!bot) return;
+  try {
+    const info = await bot.api.getMyInfo();
+    if (info?.username) botUsername = info.username;
+    if (typeof info?.user_id === 'number') botContactId = info.user_id;
+  } catch (error) {
+    console.warn(JSON.stringify({ level: 'warn', service: 'worker', message: 'Failed to fetch bot info on start', error: String(error) }));
+  }
 }
 let stopping = false;
 let polling = false;
@@ -138,7 +140,7 @@ async function upsertUser(user: MaxUserPayload, started: boolean): Promise<void>
 async function sendWelcome(user: MaxUserPayload): Promise<void> {
   if (!bot) throw new Error('MAX bot is not configured');
   const keyboard = config.MAX_MINI_APP_URL
-    ? createWelcomeKeyboard(botUsername, config.MAX_MINI_APP_URL)
+    ? createWelcomeKeyboard(botUsername, config.MAX_MINI_APP_URL, botContactId)
     : undefined;
   try {
     await bot.api.sendMessageToUser(user.user_id, welcomeText, keyboard ? { attachments: [keyboard] } : undefined);
@@ -176,7 +178,7 @@ async function processSummaryCallback(update: Record<string, unknown>): Promise<
     if (!(error instanceof SummaryAccessError)) throw error;
     const text = 'Сначала заполните профиль и подтвердите принадлежность к домовому чату.';
     if (config.MAX_MINI_APP_URL) {
-      const keyboard = createWelcomeKeyboard(botUsername, config.MAX_MINI_APP_URL);
+      const keyboard = createWelcomeKeyboard(botUsername, config.MAX_MINI_APP_URL, botContactId);
       try {
         await bot.api.sendMessageToUser(user.user_id, text, { attachments: [keyboard] });
       } catch {
@@ -221,9 +223,7 @@ async function processUpdate(payload: unknown): Promise<void> {
     const message = parsed.message;
     const sender = readUser(message.sender);
     const recipient = isRecord(message.recipient) ? message.recipient : null;
-    const body = isRecord(message.body) ? message.body : null;
-    const text = typeof body?.text === 'string' ? body.text.trim().toLowerCase() : '';
-    if (sender && recipient?.chat_type === 'dialog' && (text === '/start' || text.startsWith('/start '))) {
+    if (sender && recipient?.chat_type === 'dialog') {
       await upsertUser(sender, true);
       await sendWelcome(sender);
     }
@@ -254,6 +254,7 @@ async function poll(): Promise<void> {
   }
 }
 
+await initBotInfo();
 const timer = setInterval(() => void poll(), config.WORKER_POLL_INTERVAL_MS);
 timer.unref();
 await poll();

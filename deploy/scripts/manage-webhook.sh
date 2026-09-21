@@ -23,6 +23,15 @@ case "$action" in
       console.log("Active MAX subscriptions:", JSON.stringify(subs, null, 2));
     '
     ;;
+  me)
+    echo "Getting bot info..."
+    docker compose --env-file "$env_file" -f compose.production.yaml exec -T -w /app/apps/api api node --input-type=module -e '
+      import { Bot } from "@maxhub/max-bot-api";
+      const bot = new Bot(process.env.MAX_BOT_TOKEN);
+      const me = await bot.api.getMyInfo();
+      console.log("MAX Bot Info:", JSON.stringify(me, null, 2));
+    '
+    ;;
   register)
     echo "Registering MAX webhook subscription..."
     docker compose --env-file "$env_file" -f compose.production.yaml exec -T -w /app/apps/api api node --input-type=module -e '
@@ -56,7 +65,7 @@ case "$action" in
     '
     ;;
   *)
-    echo "Usage: $0 [status|register|unregister]" >&2
+    echo "Usage: $0 [status|me|register|unregister]" >&2
     exit 1
     ;;
 esac

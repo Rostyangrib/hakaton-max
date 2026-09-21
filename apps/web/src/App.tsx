@@ -110,7 +110,8 @@ export function App() {
     }
   }
 
-  const disabled = phase === 'loading' || phase === 'saving';
+  const isStandaloneBrowser = phase === 'error' && !displayName;
+  const disabled = phase === 'loading' || phase === 'saving' || isStandaloneBrowser;
 
   return (
     <main className="page">
@@ -170,6 +171,27 @@ export function App() {
         </section>
 
         <div className={`notice notice--${phase}`} role="status" aria-live="polite">{message}</div>
+        {isStandaloneBrowser && (
+          <p style={{ marginTop: '12px', marginBottom: '16px', textAlign: 'center' }}>
+            <a
+              href="https://max.ru/se14396800_bot"
+              target="_blank"
+              rel="noreferrer"
+              style={{
+                display: 'inline-block',
+                padding: '12px 20px',
+                borderRadius: '12px',
+                background: '#3575f6',
+                color: '#ffffff',
+                textDecoration: 'none',
+                fontWeight: 600,
+                fontSize: '15px',
+              }}
+            >
+              Открыть диалог с ботом в МАКС
+            </a>
+          </p>
+        )}
         <Button type="submit" size="large" stretched loading={phase === 'saving'} disabled={disabled}>Сохранить профиль</Button>
         <p className="privacy">Данные используются только для алертов тестового домового чата.</p>
       </form>

@@ -8,12 +8,12 @@ export const welcomeText = [
   'Также здесь можно получить краткую сводку событий дома.',
 ].join('\n');
 
-export function createWelcomeKeyboard(appTarget: string, directUrl?: string) {
+export function createWelcomeKeyboard(appTarget: string, directUrl?: string, contactId?: number) {
   const isUrl = appTarget.startsWith('http://') || appTarget.startsWith('https://');
   const webApp = isUrl ? 'se14396800_bot' : appTarget;
   const webUrl = directUrl ?? (isUrl ? appTarget : undefined);
 
-  const topRow = [Keyboard.button.openApp('Открыть профиль', webApp)];
+  const topRow = [Keyboard.button.openApp('Открыть профиль', webApp, contactId)];
   if (webUrl) {
     topRow.push(Keyboard.button.link('В браузере', webUrl));
   }
