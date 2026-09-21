@@ -74,9 +74,10 @@ pg_restore --clean --if-exists --no-owner --dbname "$DATABASE_URL" quietchat-YYY
 - Service account: `quiet-chat-vm`.
 - Lockbox secret: `quiet-chat-production` (deletion protection enabled).
 - Private bucket: `quiet-chat-backups-b1ge00tftjithijbde7u`, maximum size 5 GiB.
-- Reserved address: `quiet-chat-public-ip` (`81.26.184.200`); currently active VM IP is `158.160.237.183`, with active hostname `158-160-237-183.sslip.io` configured with automated Let's Encrypt TLS.
+- Reserved address: `quiet-chat-public-ip` (`81.26.184.200`, detached) and `quiet-chat-public-ip-active` (`158.160.237.183`, reserved static address with deletion protection); active hostname `158-160-237-183.sslip.io` configured with automated Let's Encrypt TLS.
 - VM: `quiet-chat`, regular (not preemptible), `standard-v3`, 2 vCPU at 20%, 2 GB RAM and 20 GB network HDD.
 - Security group: `quiet-chat-sg`; HTTP/HTTPS are public, SSH restricted to admin IP.
+- Webhook management: `deploy/scripts/manage-webhook.sh` handles status, registration, and removal via MAX Bot API.
 
 Resource identifiers and secret payload values are intentionally not required in Git-tracked configuration. Query IDs by resource name during deployment.
 

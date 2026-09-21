@@ -53,6 +53,7 @@ services:
       <<: *app-environment
       HOST: 0.0.0.0
       PORT: 3000
+      PUBLIC_HOST: ${PUBLIC_HOST:?PUBLIC_HOST is required}
       WEB_ORIGIN: https://${PUBLIC_HOST:?PUBLIC_HOST is required}
       MAX_WEBHOOK_SECRET: ${MAX_WEBHOOK_SECRET:?MAX_WEBHOOK_SECRET is required}
       SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
