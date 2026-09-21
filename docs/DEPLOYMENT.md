@@ -74,9 +74,9 @@ pg_restore --clean --if-exists --no-owner --dbname "$DATABASE_URL" quietchat-YYY
 - Service account: `quiet-chat-vm`.
 - Lockbox secret: `quiet-chat-production` (deletion protection enabled).
 - Private bucket: `quiet-chat-backups-b1ge00tftjithijbde7u`, maximum size 5 GiB.
-- Reserved address: `quiet-chat-public-ip`; hostname `81-26-184-200.sslip.io` resolves to it.
+- Reserved address: `quiet-chat-public-ip` (`81.26.184.200`); currently active VM IP is `158.160.237.183`, with active hostname `158-160-237-183.sslip.io` configured with automated Let's Encrypt TLS.
 - VM: `quiet-chat`, regular (not preemptible), `standard-v3`, 2 vCPU at 20%, 2 GB RAM and 20 GB network HDD.
-- Security group: `quiet-chat-sg`; HTTP/HTTPS are public and SSH ingress is disabled.
+- Security group: `quiet-chat-sg`; HTTP/HTTPS are public, SSH restricted to admin IP.
 
 Resource identifiers and secret payload values are intentionally not required in Git-tracked configuration. Query IDs by resource name during deployment.
 

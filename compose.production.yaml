@@ -8,6 +8,7 @@ x-app-environment: &app-environment
   MAX_MINI_APP_URL: https://${PUBLIC_HOST:?PUBLIC_HOST is required}
   MAX_API_BASE_URL: ${MAX_API_BASE_URL:-https://platform-api2.max.ru}
   HOME_TIMEZONE: ${HOME_TIMEZONE:-Asia/Irkutsk}
+  NODE_EXTRA_CA_CERTS: /etc/ssl/certs/russian_trusted_cas.crt
 
 services:
   postgres:
@@ -70,6 +71,8 @@ services:
       - /tmp
     security_opt:
       - no-new-privileges:true
+    volumes:
+      - ./deploy/certs/russian_trusted_cas.crt:/etc/ssl/certs/russian_trusted_cas.crt:ro
     restart: unless-stopped
 
   worker:
@@ -99,6 +102,8 @@ services:
       - /tmp
     security_opt:
       - no-new-privileges:true
+    volumes:
+      - ./deploy/certs/russian_trusted_cas.crt:/etc/ssl/certs/russian_trusted_cas.crt:ro
     restart: unless-stopped
 
   gateway:
