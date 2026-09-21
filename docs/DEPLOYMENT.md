@@ -30,7 +30,7 @@ Lockbox must contain the values represented by `.env.production.example`, includ
 5. Create a VM service account. Grant only `lockbox.payloadViewer` and the minimum Object Storage access required for the backup bucket.
 6. Create a private Object Storage bucket, configure the lifecycle from `deploy/object-storage-lifecycle.json`, and create a static access key for backups.
 7. Create a Lockbox secret and enter rotated application credentials through the Yandex Cloud console or a local, non-logged command.
-8. Create the Ubuntu VM with the service account, reserved address and the operator SSH public key.
+8. Create the Ubuntu VM with the service account and reserved address; deliver the selected public GitHub branch through cloud-init.
 9. Copy the release to `/opt/quiet-chat`, run `sudo sh deploy/scripts/bootstrap-vm.sh`, then materialize the environment with `sudo sh deploy/scripts/materialize-lockbox-env.sh <LOCKBOX_SECRET_ID>`.
 10. Run `sudo sh deploy/deploy.sh`.
 11. Verify `https://<PUBLIC_HOST>/health/ready` and the Mini App page.
@@ -76,7 +76,7 @@ pg_restore --clean --if-exists --no-owner --dbname "$DATABASE_URL" quietchat-YYY
 - Private bucket: `quiet-chat-backups-b1ge00tftjithijbde7u`, maximum size 5 GiB.
 - Reserved address: `quiet-chat-public-ip`; hostname `81-26-184-200.sslip.io` resolves to it.
 - VM: `quiet-chat`, regular (not preemptible), `standard-v3`, 2 vCPU at 20%, 2 GB RAM and 20 GB network HDD.
-- Security group: `quiet-chat-sg`; HTTP/HTTPS are public and SSH is restricted to the operator address during deployment.
+- Security group: `quiet-chat-sg`; HTTP/HTTPS are public and SSH ingress is disabled.
 
 Resource identifiers and secret payload values are intentionally not required in Git-tracked configuration. Query IDs by resource name during deployment.
 

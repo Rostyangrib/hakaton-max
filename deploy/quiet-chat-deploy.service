@@ -6,7 +6,7 @@ After=network-online.target docker.service
 [Service]
 Type=oneshot
 WorkingDirectory=/opt/quiet-chat
-ExecStart=/bin/sh -c '/opt/quiet-chat/deploy/scripts/materialize-lockbox-env.sh e6q59a0mab712i5a9ta5 && SKIP_GIT_UPDATE=1 /bin/sh /opt/quiet-chat/deploy/deploy.sh'
+ExecStart=/bin/sh -c '/bin/sh /opt/quiet-chat/deploy/scripts/materialize-lockbox-env.sh e6q59a0mab712i5a9ta5 && SKIP_GIT_UPDATE=1 /bin/sh /opt/quiet-chat/deploy/deploy.sh'
 RemainAfterExit=yes
 StandardOutput=journal+console
 StandardError=journal+console
