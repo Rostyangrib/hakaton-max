@@ -71,12 +71,19 @@ function senderName(sender: Record<string, unknown>): string | null {
   const firstName = typeof sender.first_name === 'string' ? sender.first_name.trim() : '';
   const lastName = typeof sender.last_name === 'string' ? sender.last_name.trim() : '';
   const deprecatedName = typeof sender.name === 'string' ? sender.name.trim() : '';
-  return [firstName, lastName].filter(Boolean).join(' ') || deprecatedName || null;
+  const username = typeof sender.username === 'string' ? sender.username.trim() : '';
+  return [firstName, lastName].filter(Boolean).join(' ') || deprecatedName || username || 'Жилец';
 }
 
 export function parseIncomingMessage(value: unknown): IncomingMessage | null {
   if (!isRecord(value) || !isRecord(value.sender) || !isRecord(value.recipient) || !isRecord(value.body)) return null;
-  const senderId = value.sender.user_id;
+  const rawSenderId = value.sender.user_id ?? value.sender.id;
+  const senderId =
+    typeof rawSenderId === 'number'
+      ? rawSenderId
+      : typeof rawSenderId === 'string' && /^\d+$/.test(rawSenderId)
+        ? Number(rawSenderId)
+        : null;
   const chatId = value.recipient.chat_id;
   const chatType = value.recipient.chat_type;
   const maxMessageId = value.body.mid;
@@ -84,6 +91,7 @@ export function parseIncomingMessage(value: unknown): IncomingMessage | null {
   const sentAt = timestampToDate(value.timestamp);
   const displayName = senderName(value.sender);
   if (
+    !senderId ||
     !Number.isSafeInteger(senderId) ||
     !Number.isSafeInteger(chatId) ||
     typeof chatType !== 'string' ||
@@ -96,7 +104,7 @@ export function parseIncomingMessage(value: unknown): IncomingMessage | null {
     maxMessageId,
     chatId: chatId as number,
     chatType,
-    senderUserId: senderId as number,
+    senderUserId: senderId,
     senderDisplayName: displayName,
     text,
     sentAt,

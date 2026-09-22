@@ -72,14 +72,23 @@ export function App() {
 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
-    const token = urlParams.get('token') || new URLSearchParams(window.location.hash.slice(1)).get('token');
+    const hashString = window.location.hash.replace(/^#/, '');
+    const hashParams = new URLSearchParams(hashString);
+    const token = urlParams.get('token') || hashParams.get('token');
 
     const bridge = window.WebApp;
     bridge?.ready?.();
     bridge?.expand?.();
-    const initData = bridge?.initData;
+    const initData =
+      bridge?.initData ||
+      hashParams.get('WebAppData') ||
+      urlParams.get('WebAppData') ||
+      hashParams.get('initData') ||
+      urlParams.get('initData') ||
+      hashParams.get('tgWebAppData') ||
+      urlParams.get('tgWebAppData');
 
-    if (!initData && !token) {
+    if (!initData && !token && !activeSessionToken) {
       setPhase('error');
       setMessage('Откройте профиль кнопкой или ссылкой в диалоге с ботом MAX.');
       return;
@@ -87,25 +96,31 @@ export function App() {
 
     void (async () => {
       try {
-        let auth: { displayName: string; sessionToken?: string };
         if (token) {
-          auth = await api<{ displayName: string; sessionToken?: string }>('/api/auth/token', {
+          const auth = await api<{ displayName: string; sessionToken?: string }>('/api/auth/token', {
             method: 'POST',
             body: JSON.stringify({ token }),
           });
-        } else {
-          auth = await api<{ displayName: string; sessionToken?: string }>('/api/auth/max', {
+          setSessionToken(auth.sessionToken);
+          setDisplayName(auth.displayName);
+        } else if (initData) {
+          const cleanInitData = initData.replace(/^[#?]/, '');
+          const auth = await api<{ displayName: string; sessionToken?: string }>('/api/auth/max', {
             method: 'POST',
-            body: JSON.stringify({ initData }),
+            body: JSON.stringify({ initData: cleanInitData }),
           });
+          setSessionToken(auth.sessionToken);
+          setDisplayName(auth.displayName);
         }
-        setSessionToken(auth.sessionToken);
-        setDisplayName(auth.displayName);
         const profile = await api<ResidentProfile | null>('/api/profile');
         setForm(fromProfile(profile));
         setPhase('ready');
         setMessage(profile ? 'Профиль загружен' : 'Заполните данные для персональных уведомлений');
       } catch (error) {
+        activeSessionToken = null;
+        try {
+          sessionStorage.removeItem('quietchat_token');
+        } catch {}
         setPhase('error');
         setMessage(error instanceof Error ? error.message : 'Не удалось открыть профиль');
       }

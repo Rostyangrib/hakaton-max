@@ -18,8 +18,12 @@ const app = await buildApp({
     membership: {
       async isMember(maxChatId, maxUserId) {
         if (!bot) return false;
-        const response = await bot.api.getChatMembers(maxChatId, { user_ids: [maxUserId] });
-        return response.members.some((member) => member.user_id === maxUserId);
+        try {
+          const response = await bot.api.getChatMembers(maxChatId, { user_ids: [maxUserId] });
+          return response.members.some((member: any) => (member.user_id ?? member.id) === maxUserId);
+        } catch {
+          return false;
+        }
       },
     },
   },

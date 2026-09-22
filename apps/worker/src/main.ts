@@ -66,11 +66,25 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function readUser(value: unknown): MaxUserPayload | null {
-  if (!isRecord(value) || !Number.isSafeInteger(value.user_id) || typeof value.first_name !== 'string') return null;
+  if (!isRecord(value)) return null;
+  const rawId = value.user_id ?? value.id;
+  const userId =
+    typeof rawId === 'number'
+      ? rawId
+      : typeof rawId === 'string' && /^\d+$/.test(rawId)
+        ? Number(rawId)
+        : null;
+  if (!userId || !Number.isSafeInteger(userId) || userId <= 0) return null;
+  const firstName =
+    typeof value.first_name === 'string' && value.first_name.trim()
+      ? value.first_name.trim()
+      : 'Жилец';
   return {
-    user_id: value.user_id as number,
-    first_name: value.first_name,
-    ...(typeof value.last_name === 'string' ? { last_name: value.last_name } : {}),
+    user_id: userId,
+    first_name: firstName,
+    ...(typeof value.last_name === 'string' && value.last_name.trim()
+      ? { last_name: value.last_name.trim() }
+      : {}),
   };
 }
 

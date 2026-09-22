@@ -52,6 +52,31 @@ describe('MAX initData validation', () => {
     expect(result.username).toBeUndefined();
   });
 
+  it('accepts rawInitData with leading # or ? and string id with null first_name', () => {
+    const params = new URLSearchParams({
+      auth_date: '1000',
+      query_id: 'test-query-3',
+      user: JSON.stringify({
+        id: '215608884',
+        first_name: null,
+        last_name: null,
+        username: null,
+        extra_field: 'allowed_via_passthrough',
+      }),
+    });
+    const checkString = [...params.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, value]) => `${key}=${value}`)
+      .join('\n');
+    const secretKey = createHmac('sha256', 'WebAppData').update('test-token').digest();
+    params.set('hash', createHmac('sha256', secretKey).update(checkString).digest('hex'));
+
+    const hashPrefixed = `#${params.toString()}`;
+    const result = validateMaxInitData(hashPrefixed, 'test-token', 600, 1_100);
+    expect(result.user_id).toBe(215608884);
+    expect(result.first_name).toBe('Жилец');
+  });
+
   it('rejects tampered, expired and duplicate payloads', () => {
     const valid = makeInitData('test-token', 1_000);
     expect(() => validateMaxInitData(valid.replace('test-query', 'changed'), 'test-token', 600, 1_100)).toThrow(MaxInitDataError);

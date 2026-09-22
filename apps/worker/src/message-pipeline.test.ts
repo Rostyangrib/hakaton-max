@@ -103,4 +103,27 @@ describe('message pipeline', () => {
     await expect(pipeline.handle(createdUpdate('кв. 54'))).rejects.toThrow('MAX unavailable');
     expect(repo.markDeliveryFailed).toHaveBeenCalledWith('delivery-uuid', 'MAX unavailable');
   });
+
+  it('accepts sender with id instead of user_id and username fallback', async () => {
+    const repo = repository();
+    const privateApi = { sendMessageToUser: vi.fn(async () => ({})) };
+    const pipeline = new MessagePipeline(repo, privateApi, 777, 15);
+    const updateWithId: MaxUpdate = {
+      update_type: 'message_created',
+      timestamp: 1_700_000_000_000,
+      message: {
+        sender: { id: 215608884, username: 'testuser' },
+        recipient: { chat_id: 777, chat_type: 'chat' },
+        timestamp: 1_700_000_000_000,
+        body: { mid: 'mid-2', text: 'кв. 54' },
+      },
+    };
+    expect(await pipeline.handle(updateWithId)).toBe(true);
+    expect(repo.upsertCreated).toHaveBeenCalledWith(
+      'home-uuid',
+      expect.objectContaining({ senderUserId: 215608884, senderDisplayName: 'testuser' }),
+      expect.any(String),
+      expect.any(String),
+    );
+  });
 });

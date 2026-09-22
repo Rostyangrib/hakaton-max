@@ -9,7 +9,7 @@ import type { ProfileStore, WebhookInbox } from './contracts.js';
 type Database = ReturnType<typeof createDatabase>['db'];
 
 function displayName(user: MaxUser): string {
-  return [user.first_name, user.last_name].filter(Boolean).join(' ');
+  return [user.first_name, user.last_name].filter(Boolean).join(' ') || 'Жилец';
 }
 
 function cleanNullable(value: string | null | undefined): string | null {

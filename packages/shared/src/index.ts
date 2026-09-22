@@ -22,16 +22,25 @@ export const residentProfileSchema = residentProfileInputSchema.extend({
   updatedAt: z.string().datetime(),
 });
 
+const userIdField = z.union([
+  z.number().int().positive(),
+  z.string().regex(/^\d+$/).transform(Number),
+]);
+
 export const maxUserSchema = z
   .object({
-    user_id: z.number().int().positive().optional(),
-    id: z.number().int().positive().optional(),
-    first_name: z.string().min(1),
+    user_id: userIdField.optional(),
+    id: userIdField.optional(),
+    first_name: z
+      .string()
+      .nullish()
+      .transform((val) => (val && val.trim() ? val.trim() : 'Жилец')),
     last_name: z.string().nullable().optional(),
     username: z.string().nullable().optional(),
     language_code: z.string().nullable().optional(),
     photo_url: z.string().nullable().optional(),
   })
+  .passthrough()
   .refine((data) => data.user_id !== undefined || data.id !== undefined, {
     message: 'Either user_id or id must be provided',
   })
