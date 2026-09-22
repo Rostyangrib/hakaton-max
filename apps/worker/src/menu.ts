@@ -15,7 +15,9 @@ export function createWelcomeKeyboard(appTarget: string, directUrl?: string, con
   const webApp = isUrl ? 'se14396800_bot' : appTarget;
   const webUrl = directUrl ?? (isUrl ? appTarget : undefined);
 
-  const topRow = [Keyboard.button.openApp('Открыть профиль', webApp, contactId)];
+  const topRow: Array<ReturnType<typeof Keyboard.button.openApp> | ReturnType<typeof Keyboard.button.link>> = [
+    Keyboard.button.openApp('Открыть профиль', webApp, contactId),
+  ];
   if (webUrl) {
     topRow.push(Keyboard.button.link('Заполнить профиль', webUrl));
   }

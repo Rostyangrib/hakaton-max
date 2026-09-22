@@ -25,6 +25,33 @@ describe('MAX initData validation', () => {
     expect(result.user_id).toBe(460620062);
   });
 
+  it('accepts user payload with id instead of user_id and nullable fields', () => {
+    const params = new URLSearchParams({
+      auth_date: '1000',
+      query_id: 'test-query-2',
+      user: JSON.stringify({
+        id: 215608884,
+        first_name: 'Иван',
+        last_name: null,
+        username: null,
+        language_code: 'ru',
+        photo_url: null,
+      }),
+    });
+    const checkString = [...params.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, value]) => `${key}=${value}`)
+      .join('\n');
+    const secretKey = createHmac('sha256', 'WebAppData').update('test-token').digest();
+    params.set('hash', createHmac('sha256', secretKey).update(checkString).digest('hex'));
+
+    const result = validateMaxInitData(params.toString(), 'test-token', 600, 1_100);
+    expect(result.user_id).toBe(215608884);
+    expect(result.first_name).toBe('Иван');
+    expect(result.last_name).toBeUndefined();
+    expect(result.username).toBeUndefined();
+  });
+
   it('rejects tampered, expired and duplicate payloads', () => {
     const valid = makeInitData('test-token', 1_000);
     expect(() => validateMaxInitData(valid.replace('test-query', 'changed'), 'test-token', 600, 1_100)).toThrow(MaxInitDataError);

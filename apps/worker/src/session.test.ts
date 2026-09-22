@@ -9,7 +9,7 @@ describe('worker session generator', () => {
     expect(encodedPayload).toBeDefined();
     expect(signature).toBeDefined();
 
-    const payload = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8'));
+    const payload = JSON.parse(Buffer.from(encodedPayload!, 'base64url').toString('utf8'));
     expect(payload.sub).toBe('215608884');
     expect(payload.exp).toBe(4600);
   });

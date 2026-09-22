@@ -23,11 +23,29 @@ const emptyForm: FormState = {
   alertsEnabled: true,
 };
 
+let activeSessionToken: string | null = null;
+try {
+  activeSessionToken = sessionStorage.getItem('quietchat_token');
+} catch {}
+
+function setSessionToken(token: string | undefined) {
+  if (!token) return;
+  activeSessionToken = token;
+  try {
+    sessionStorage.setItem('quietchat_token', token);
+  } catch {}
+}
+
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+    ...(activeSessionToken ? { authorization: `Bearer ${activeSessionToken}` } : {}),
+    ...(init?.headers as Record<string, string> | undefined),
+  };
   const response = await fetch(`${apiBaseUrl}${path}`, {
     ...init,
     credentials: 'include',
-    headers: { 'content-type': 'application/json', ...init?.headers },
+    headers,
   });
   const payload = (await response.json()) as ApiEnvelope<T>;
   if (!response.ok || payload.error) throw new Error(payload.error?.message ?? 'Не удалось выполнить запрос');
@@ -69,18 +87,19 @@ export function App() {
 
     void (async () => {
       try {
-        let auth: { displayName: string };
+        let auth: { displayName: string; sessionToken?: string };
         if (token) {
-          auth = await api<{ displayName: string }>('/api/auth/token', {
+          auth = await api<{ displayName: string; sessionToken?: string }>('/api/auth/token', {
             method: 'POST',
             body: JSON.stringify({ token }),
           });
         } else {
-          auth = await api<{ displayName: string }>('/api/auth/max', {
+          auth = await api<{ displayName: string; sessionToken?: string }>('/api/auth/max', {
             method: 'POST',
             body: JSON.stringify({ initData }),
           });
         }
+        setSessionToken(auth.sessionToken);
         setDisplayName(auth.displayName);
         const profile = await api<ResidentProfile | null>('/api/profile');
         setForm(fromProfile(profile));
