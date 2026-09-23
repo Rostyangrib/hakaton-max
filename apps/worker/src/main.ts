@@ -10,6 +10,7 @@ import { PostgresMessageRepository } from './postgres-message-repository.js';
 import { PostgresSummaryRepository } from './postgres-summary-repository.js';
 import { createSession } from './session.js';
 import { renderSummary } from './summary.js';
+import { SummaryCallbackHandler } from './summary-callback-handler.js';
 import { SummaryAccessError, SummaryService } from './summary-service.js';
 import { YandexGptClient } from './yandex-gpt.js';
 
@@ -44,6 +45,16 @@ const summaryService = bot && Number.isSafeInteger(configuredHomeChatId)
   : null;
 let botUsername = config.MAX_BOT_USERNAME || 'se14396800_bot';
 let botContactId: number | undefined;
+
+const summaryCallbackHandler = bot && summaryService
+  ? new SummaryCallbackHandler({
+      botApi: bot.api,
+      summaryService,
+      onUserSeen: (user) => upsertUser(user, true),
+      getUserDirectUrl: (userId) => getUserDirectUrl(userId),
+      getWelcomeKeyboard: (directUrl) => (config.MAX_MINI_APP_URL ? createWelcomeKeyboard(botUsername, directUrl, botContactId) : undefined),
+    })
+  : null;
 
 async function initBotInfo(): Promise<void> {
   if (!bot) return;
@@ -179,41 +190,15 @@ async function sendWelcome(user: MaxUserPayload): Promise<void> {
 
 async function processSummaryCallback(update: Record<string, unknown>): Promise<boolean> {
   if (update.update_type !== 'message_callback' || !bot) return false;
-  const callback = isRecord(update.callback) ? update.callback : null;
-  const callbackMessage = isRecord(update.message) ? update.message : null;
-  const recipient = callbackMessage && isRecord(callbackMessage.recipient) ? callbackMessage.recipient : null;
-  const user = callback ? readUser(callback.user) : null;
-  const callbackId = callback?.callback_id;
-  const payload = callback?.payload;
-  if (!user || recipient?.chat_type !== 'dialog' || typeof callbackId !== 'string' || typeof payload !== 'string') return false;
-  const period = summaryPeriodSchema.safeParse(payload.startsWith('summary:') ? payload.slice(8) : '');
-  if (!period.success) return false;
-
-  await upsertUser(user, true);
-  await bot.api.answerOnCallback(callbackId, { message: { text: 'Готовлю сводку…' } }).catch(() => undefined);
-  if (!summaryService) throw new Error('MAX_HOME_CHAT_ID is not configured');
-  try {
-    const summary = await summaryService.generate(BigInt(user.user_id), period.data);
-    await bot.api.sendMessageToUser(user.user_id, renderSummary(summary), {
-      format: 'markdown',
-      attachments: [createSummaryKeyboard()],
-    });
-  } catch (error) {
-    if (!(error instanceof SummaryAccessError)) throw error;
-    const text = 'Сначала заполните профиль и подтвердите принадлежность к домовому чату.';
-    if (config.MAX_MINI_APP_URL) {
-      const directUrl = getUserDirectUrl(user.user_id);
-      const keyboard = createWelcomeKeyboard(botUsername, directUrl, botContactId);
-      try {
-        await bot.api.sendMessageToUser(user.user_id, text, { attachments: [keyboard] });
-      } catch {
-        await bot.api.sendMessageToUser(user.user_id, `${text}\n\nЗаполнить профиль: ${directUrl}`);
-      }
-    } else {
-      await bot.api.sendMessageToUser(user.user_id, text);
+  if (!summaryService || !summaryCallbackHandler) {
+    const callback = isRecord(update.callback) ? update.callback : null;
+    const payload = callback && typeof callback.payload === 'string' ? callback.payload : '';
+    if (payload.startsWith('summary:')) {
+      throw new Error('MAX_HOME_CHAT_ID is not configured');
     }
+    return false;
   }
-  return true;
+  return summaryCallbackHandler.handle(update);
 }
 
 async function processUpdate(payload: unknown): Promise<void> {
