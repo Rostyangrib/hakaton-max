@@ -28,10 +28,28 @@ export class PostgresSummaryRepository implements SummaryRepository {
 
   async findCached(homeId: string, maxUserId: bigint, period: SummaryPeriod, createdAfter: Date): Promise<SummaryResult | null> {
     const response = await this.database.pool.query<{ result: unknown }>(
-      `select result from summary_jobs
-       where home_id = $1 and requested_by = $2 and status = 'done'
-         and created_at >= $3 and result ->> 'period' = $4
-       order by created_at desc limit 1`,
+      `select sj.result from summary_jobs sj
+       where sj.home_id = $1 and sj.status = 'done'
+         and sj.created_at >= $3 and sj.result ->> 'period' = $4
+         and not exists (
+           select 1 from messages m
+           where m.home_id = sj.home_id
+             and m.sent_at >= sj.period_from
+             and (
+               m.created_at > sj.created_at
+               or m.updated_at > sj.created_at
+               or m.sent_at > sj.created_at
+               or (m.edited_at is not null and m.edited_at > sj.created_at)
+               or (m.deleted_at is not null and m.deleted_at > sj.created_at)
+             )
+         )
+         and (
+           select count(*) from messages m
+           where m.home_id = sj.home_id
+             and m.sent_at >= sj.period_from
+             and m.deleted_at is null
+         ) = sj.message_count
+       order by (case when sj.requested_by = $2 then 0 else 1 end), sj.created_at desc limit 1`,
       [homeId, maxUserId.toString(), createdAfter, period],
     );
     const parsed = summaryResultSchema.safeParse(response.rows[0]?.result);

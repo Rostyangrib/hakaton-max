@@ -41,15 +41,17 @@ export class SummaryService {
     if (!home) throw new SummaryAccessError('Resident profile is required to request a summary');
 
     const now = this.now();
+    const { from, to } = getSummaryPeriodRange(period, now, home.timezone);
     const cached = await this.repository.findCached(
       home.id,
       maxUserId,
       period,
       new Date(now.getTime() - this.cacheTtlSeconds * 1_000),
     );
-    if (cached) return { ...cached, cached: true };
+    if (cached && (period !== 'today' || cached.periodFrom === from.toISOString())) {
+      return { ...cached, cached: true };
+    }
 
-    const { from, to } = getSummaryPeriodRange(period, now, home.timezone);
     const sourceMessages = await this.repository.listMessages(home.id, from, to);
     const prepared = prepareSummaryMessages(sourceMessages);
     const jobId = await this.repository.createJob({

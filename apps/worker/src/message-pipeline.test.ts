@@ -1,7 +1,7 @@
 import type { MaxUpdate } from '@quiet-chat/shared';
 import { describe, expect, it, vi } from 'vitest';
 
-import { MessagePipeline, type MessageRepository, type StoredMessage } from './message-pipeline.js';
+import { MessagePipeline, type AlertProfile, type MessageRepository, type StoredMessage } from './message-pipeline.js';
 
 function createdUpdate(text: string, chatId = 777): MaxUpdate {
   return {
@@ -33,7 +33,7 @@ function repository(reservation = true) {
     upsertCreated: vi.fn(async (_home, message) => ({ ...stored, ...message })),
     updateEdited: vi.fn(async (_home, message) => ({ ...stored, ...message })),
     markDeleted: vi.fn(async () => true),
-    findAlertProfiles: vi.fn(async () => [{
+    findAlertProfiles: vi.fn(async (): Promise<AlertProfile[]> => [{
       id: 'profile-uuid',
       maxUserId: 42n,
       apartment: 54,
@@ -58,6 +58,35 @@ describe('message pipeline', () => {
     expect(repo.reserveDelivery).toHaveBeenCalledWith(expect.objectContaining({ antifloodMinutes: 15 }));
     expect(privateApi.sendMessageToUser).toHaveBeenCalledWith(42, expect.stringContaining('квартира 54'));
     expect(repo.markDeliveryDone).toHaveBeenCalledOnce();
+  });
+
+  it('delivers alert to resident even when the sender is the resident themselves (e.g. testing apartment mentions)', async () => {
+    const repo = repository();
+    repo.findAlertProfiles = vi.fn(async () => [{
+      id: 'profile-uuid',
+      maxUserId: 42n,
+      apartment: 54,
+      entrance: 3,
+      carPlateNormalized: null,
+      carDescription: null,
+    }]);
+    const privateApi = { sendMessageToUser: vi.fn(async () => ({})) };
+    const pipeline = new MessagePipeline(repo, privateApi, 777, 15);
+
+    const updateFromSameUser: MaxUpdate = {
+      update_type: 'message_created',
+      timestamp: 1_700_000_000_000,
+      message: {
+        sender: { user_id: 42, first_name: 'Ростислав' },
+        recipient: { chat_id: 777, chat_type: 'chat' },
+        timestamp: 1_700_000_000_000,
+        body: { mid: 'mid-self', text: 'Квартира 54, у вас, кажется, тамбурная дверь приоткрыта, проверьте, пожалуйста.' },
+      },
+    };
+
+    expect(await pipeline.handle(updateFromSameUser)).toBe(true);
+    expect(repo.findAlertProfiles).toHaveBeenCalledWith('home-uuid', 42n);
+    expect(privateApi.sendMessageToUser).toHaveBeenCalledWith(42, expect.stringContaining('квартира 54'));
   });
 
   it('does not ingest messages from another chat', async () => {

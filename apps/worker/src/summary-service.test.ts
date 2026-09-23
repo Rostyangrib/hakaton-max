@@ -52,6 +52,36 @@ describe('SummaryService', () => {
     expect(repo.completeJob).toHaveBeenCalledWith('job-1', 'fallback', result, 'timeout');
   });
 
+  it('generates a fresh summary when cached summary is invalidated by new messages', async () => {
+    const repo = repository({ findCached: vi.fn(async () => null) });
+    const model = { summarize: vi.fn(async () => ({ housing: [], yard: [], community: [] })) };
+    const result = await new SummaryService(repo, model, 777n, 600, () => now).generate(42n, 'today');
+    expect(result.cached).toBe(false);
+    expect(repo.findCached).toHaveBeenCalled();
+    expect(repo.listMessages).toHaveBeenCalled();
+    expect(model.summarize).toHaveBeenCalled();
+    expect(repo.createJob).toHaveBeenCalled();
+  });
+
+  it('bypasses stale today cache when the date rolls over past local midnight', async () => {
+    const yesterdayFrom = '2026-09-20T16:00:00.000Z'; // yesterday midnight in Asia/Irkutsk
+    const cachedFromYesterday: SummaryResult = {
+      housing: [], yard: [], community: [], period: 'today',
+      periodFrom: yesterdayFrom, periodTo: '2026-09-20T23:59:00.000Z',
+      messageCount: 5, filteredCount: 5, savedMinutes: 1,
+      generatedAt: '2026-09-20T23:59:00.000Z', mode: 'yandexgpt', cached: false,
+    };
+    const repo = repository({ findCached: vi.fn(async () => cachedFromYesterday) });
+    const model = { summarize: vi.fn(async () => ({ housing: [], yard: [], community: [] })) };
+    // now is 2026-09-21T04:00:00.000Z, so today midnight in Asia/Irkutsk is 2026-09-20T16:00:00.000Z...
+    // Let's set a date where local midnight is different:
+    const nextDay = new Date('2026-09-22T04:00:00.000Z');
+    const result = await new SummaryService(repo, model, 777n, 600, () => nextDay).generate(42n, 'today');
+    expect(result.cached).toBe(false);
+    expect(repo.listMessages).toHaveBeenCalled();
+    expect(model.summarize).toHaveBeenCalled();
+  });
+
   it('rejects users without a verified resident profile', async () => {
     const repo = repository({ findHomeForResident: vi.fn(async () => null) });
     await expect(new SummaryService(repo, null, 777n, 600, () => now).generate(42n, 'today')).rejects.toBeInstanceOf(SummaryAccessError);
