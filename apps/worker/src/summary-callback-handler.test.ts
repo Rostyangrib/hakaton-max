@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { SummaryResult } from '@quiet-chat/shared';
 
-import { SummaryCallbackHandler, type SummaryBotApi } from './summary-callback-handler.js';
+import {
+  SummaryCallbackHandler,
+  getMessageMid,
+  readUser,
+  type SummaryBotApi,
+} from './summary-callback-handler.js';
 import { SummaryAccessError } from './summary-service.js';
 
 function createMockUpdate(payload = 'summary:today', userId = 215608884) {
@@ -147,14 +152,21 @@ describe('SummaryCallbackHandler', () => {
     expect(handler.getPendingStatusMid(215608884)).toBeUndefined();
   });
 
-  it('deletes previous in-flight status message when a new callback arrives for the same user', async () => {
+  it('deletes previous in-flight status message and ignores completion when superseded', async () => {
+    const deletedMids = new Set<string>();
     const botApi: SummaryBotApi = {
       answerOnCallback: vi.fn().mockResolvedValue({ success: true }),
       sendMessageToUser: vi.fn()
         .mockResolvedValueOnce({ body: { mid: 'mid-status-first' } })
         .mockResolvedValueOnce({ body: { mid: 'mid-status-second' } }),
-      editMessage: vi.fn().mockResolvedValue({ success: true }),
-      deleteMessage: vi.fn().mockResolvedValue({ success: true }),
+      editMessage: vi.fn().mockImplementation(async (mid) => {
+        if (deletedMids.has(mid)) throw new Error('Message not found (deleted)');
+        return { success: true };
+      }),
+      deleteMessage: vi.fn().mockImplementation(async (mid) => {
+        deletedMids.add(mid);
+        return { success: true };
+      }),
     };
     let resolveFirstGenerate: (res: SummaryResult) => void;
     const firstGeneratePromise = new Promise<SummaryResult>((resolve) => {
@@ -171,7 +183,6 @@ describe('SummaryCallbackHandler', () => {
 
     // First click starts generating
     const firstPromise = handler.handle(createMockUpdate('summary:today'));
-    // Wait for microtasks (answerOnCallback + sendMessageToUser) to complete
     for (let i = 0; i < 5; i += 1) await Promise.resolve();
 
     expect(handler.getPendingStatusMid(215608884)).toBe('mid-status-first');
@@ -183,15 +194,56 @@ describe('SummaryCallbackHandler', () => {
     // Previous status message mid-status-first must be deleted immediately!
     expect(botApi.deleteMessage).toHaveBeenCalledWith('mid-status-first');
 
-    // Finish second
+    // Finish second request
     await secondPromise;
     expect(botApi.editMessage).toHaveBeenCalledWith('mid-status-second', expect.anything());
 
-    // Finish first
+    // Finish first (now superseded) request
     resolveFirstGenerate!(dummySummary);
     await firstPromise;
 
+    // Superseded request must NOT have edited the deleted message or sent a fallback message
+    expect(botApi.editMessage).not.toHaveBeenCalledWith('mid-status-first', expect.anything());
+    expect(botApi.sendMessageToUser).toHaveBeenCalledTimes(2); // Only status-first and status-second
     expect(handler.getPendingStatusMid(215608884)).toBeUndefined();
+  });
+
+  it('cancels and cleans up when second callback arrives before first status message finishes sending', async () => {
+    let resolveFirstSend: (res: unknown) => void;
+    const firstSendPromise = new Promise((resolve) => {
+      resolveFirstSend = resolve;
+    });
+
+    const botApi: SummaryBotApi = {
+      answerOnCallback: vi.fn().mockResolvedValue({ success: true }),
+      sendMessageToUser: vi.fn()
+        .mockReturnValueOnce(firstSendPromise)
+        .mockResolvedValueOnce({ body: { mid: 'mid-status-second' } }),
+      editMessage: vi.fn().mockResolvedValue({ success: true }),
+      deleteMessage: vi.fn().mockResolvedValue({ success: true }),
+    };
+
+    const summaryService = {
+      generate: vi.fn().mockResolvedValue(dummySummary),
+    };
+
+    const handler = new SummaryCallbackHandler({ botApi, summaryService });
+
+    const firstPromise = handler.handle(createMockUpdate('summary:today'));
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+
+    const secondPromise = handler.handle(createMockUpdate('summary:week'));
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+
+    // First send finishes after second request has already started
+    resolveFirstSend!({ body: { mid: 'mid-status-first' } });
+
+    await Promise.all([firstPromise, secondPromise]);
+
+    // First status message must be deleted once sent since it was superseded
+    expect(botApi.deleteMessage).toHaveBeenCalledWith('mid-status-first');
+    // Only one summary was generated for the second request
+    expect(botApi.editMessage).toHaveBeenCalledWith('mid-status-second', expect.anything());
   });
 
   it('handles SummaryAccessError by updating status message with error notice and keyboard', async () => {
@@ -242,5 +294,44 @@ describe('SummaryCallbackHandler', () => {
     // Status message must be deleted so no ghost message remains in chat
     expect(botApi.deleteMessage).toHaveBeenCalledWith('mid-status-err');
     expect(handler.getPendingStatusMid(215608884)).toBeUndefined();
+  });
+});
+
+describe('getMessageMid', () => {
+  it('extracts mid from various response shapes including numeric mids', () => {
+    expect(getMessageMid({ body: { mid: 'mid-123' } })).toBe('mid-123');
+    expect(getMessageMid({ mid: 'mid-456' })).toBe('mid-456');
+    expect(getMessageMid({ message: { body: { mid: 'mid-789' } } })).toBe('mid-789');
+    expect(getMessageMid({ message: { mid: 'mid-012' } })).toBe('mid-012');
+    expect(getMessageMid({ body: { mid: 998877 } })).toBe('998877');
+    expect(getMessageMid({ body: { mid: '  mid-trimmed  ' } })).toBe('mid-trimmed');
+    expect(getMessageMid(null)).toBeUndefined();
+    expect(getMessageMid({})).toBeUndefined();
+    expect(getMessageMid({ body: { mid: '' } })).toBeUndefined();
+  });
+});
+
+describe('readUser', () => {
+  it('correctly parses user with various id formats and defaults', () => {
+    expect(readUser({ user_id: 12345, first_name: 'Иван', last_name: 'Иванов' })).toEqual({
+      user_id: 12345,
+      first_name: 'Иван',
+      last_name: 'Иванов',
+    });
+
+    expect(readUser({ id: '67890', first_name: '  Петр  ' })).toEqual({
+      user_id: 67890,
+      first_name: 'Петр',
+    });
+
+    expect(readUser({ user_id: 100n })).toEqual({
+      user_id: 100,
+      first_name: 'Жилец',
+    });
+
+    expect(readUser(null)).toBeNull();
+    expect(readUser({ user_id: 0 })).toBeNull();
+    expect(readUser({ user_id: -5 })).toBeNull();
+    expect(readUser({ user_id: 'invalid' })).toBeNull();
   });
 });

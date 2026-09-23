@@ -37,9 +37,11 @@ export function readUser(value: unknown): MaxUserPayload | null {
   const userId =
     typeof rawId === 'number'
       ? rawId
-      : typeof rawId === 'string' && /^\d+$/.test(rawId)
+      : typeof rawId === 'bigint'
         ? Number(rawId)
-        : null;
+        : typeof rawId === 'string' && /^\d+$/.test(rawId)
+          ? Number(rawId)
+          : null;
   if (!userId || !Number.isSafeInteger(userId) || userId <= 0) return null;
   const firstName =
     typeof value.first_name === 'string' && value.first_name.trim()
@@ -61,15 +63,15 @@ export function getMessageMid(response: unknown): string | undefined {
     mid?: unknown;
     message?: { body?: { mid?: unknown }; mid?: unknown };
   };
-  if (typeof msg.body?.mid === 'string') return msg.body.mid;
-  if (typeof msg.mid === 'string') return msg.mid;
-  if (typeof msg.message?.body?.mid === 'string') return msg.message.body.mid;
-  if (typeof msg.message?.mid === 'string') return msg.message.mid;
+  const rawMid = msg.body?.mid ?? msg.mid ?? msg.message?.body?.mid ?? msg.message?.mid;
+  if (typeof rawMid === 'string' && rawMid.trim().length > 0) return rawMid.trim();
+  if (typeof rawMid === 'number' && Number.isFinite(rawMid)) return String(rawMid);
   return undefined;
 }
 
 export class SummaryCallbackHandler {
   private readonly pendingStatusMids = new Map<number, string>();
+  private readonly activeRequestSeq = new Map<number, number>();
 
   constructor(private readonly options: SummaryCallbackOptions) {}
 
@@ -85,11 +87,16 @@ export class SummaryCallbackHandler {
     const user = callback ? readUser(callback.user) : null;
     const callbackId = callback?.callback_id;
     const payload = callback?.payload;
-    if (!user || recipient?.chat_type !== 'dialog' || typeof callbackId !== 'string' || typeof payload !== 'string') {
+    const isGroupChat = recipient?.chat_type === 'chat' || recipient?.chat_type === 'channel';
+    if (!user || isGroupChat || typeof callbackId !== 'string' || typeof payload !== 'string') {
       return false;
     }
     const period = summaryPeriodSchema.safeParse(payload.startsWith('summary:') ? payload.slice(8) : '');
     if (!period.success) return false;
+
+    // Инкрементируем порядковый номер запроса пользователя для защиты от гонок и повторных кликов
+    const requestId = (this.activeRequestSeq.get(user.user_id) ?? 0) + 1;
+    this.activeRequestSeq.set(user.user_id, requestId);
 
     if (this.options.onUserSeen) {
       await this.options.onUserSeen(user);
@@ -105,20 +112,46 @@ export class SummaryCallbackHandler {
       await this.options.botApi.deleteMessage(prevMid).catch(() => undefined);
     }
 
+    // Если во время снятия спиннера или удаления пришел более новый запрос — прерываемся
+    if (this.activeRequestSeq.get(user.user_id) !== requestId) {
+      return true;
+    }
+
     // 3. Отправляем статусное сообщение в самый низ диалога (ниже последнего сообщения)
     let statusMid: string | undefined;
     try {
       const statusMsg = await this.options.botApi.sendMessageToUser(user.user_id, 'Готовлю сводку…');
       statusMid = getMessageMid(statusMsg);
-      if (statusMid) {
-        this.pendingStatusMids.set(user.user_id, statusMid);
-      }
     } catch {
       // При ошибке отправки статуса продолжаем генерацию
     }
 
+    // Если во время отправки статуса пришел более новый запрос — удаляем статус и прерываемся
+    if (this.activeRequestSeq.get(user.user_id) !== requestId) {
+      if (statusMid) {
+        await this.options.botApi.deleteMessage(statusMid).catch(() => undefined);
+      }
+      return true;
+    }
+
+    if (statusMid) {
+      this.pendingStatusMids.set(user.user_id, statusMid);
+    }
+
     try {
       const summary = await this.options.summaryService.generate(BigInt(user.user_id), period.data);
+
+      // Проверяем актуальность запроса после ожидания генерации
+      if (this.activeRequestSeq.get(user.user_id) !== requestId) {
+        if (statusMid) {
+          await this.options.botApi.deleteMessage(statusMid).catch(() => undefined);
+          if (this.pendingStatusMids.get(user.user_id) === statusMid) {
+            this.pendingStatusMids.delete(user.user_id);
+          }
+        }
+        return true;
+      }
+
       const summaryText = renderSummary(summary);
       const summaryKeyboard = createSummaryKeyboard();
 
@@ -136,6 +169,17 @@ export class SummaryCallbackHandler {
         }
       }
 
+      // Проверяем актуальность после редактирования
+      if (this.activeRequestSeq.get(user.user_id) !== requestId) {
+        if (statusMid) {
+          await this.options.botApi.deleteMessage(statusMid).catch(() => undefined);
+          if (this.pendingStatusMids.get(user.user_id) === statusMid) {
+            this.pendingStatusMids.delete(user.user_id);
+          }
+        }
+        return true;
+      }
+
       if (!edited) {
         await this.options.botApi.sendMessageToUser(user.user_id, summaryText, {
           format: 'markdown',
@@ -150,6 +194,17 @@ export class SummaryCallbackHandler {
         this.pendingStatusMids.delete(user.user_id);
       }
     } catch (error) {
+      // Если запрос был вытеснен новым, подчищаем статус и завершаем работу без выброса ошибки
+      if (this.activeRequestSeq.get(user.user_id) !== requestId) {
+        if (statusMid) {
+          await this.options.botApi.deleteMessage(statusMid).catch(() => undefined);
+          if (this.pendingStatusMids.get(user.user_id) === statusMid) {
+            this.pendingStatusMids.delete(user.user_id);
+          }
+        }
+        return true;
+      }
+
       if (error instanceof SummaryAccessError) {
         const text = 'Сначала заполните профиль и подтвердите принадлежность к домовому чату.';
         const directUrl = this.options.getUserDirectUrl?.(user.user_id);
@@ -166,6 +221,16 @@ export class SummaryCallbackHandler {
           } catch {
             edited = false;
           }
+        }
+
+        if (this.activeRequestSeq.get(user.user_id) !== requestId) {
+          if (statusMid) {
+            await this.options.botApi.deleteMessage(statusMid).catch(() => undefined);
+            if (this.pendingStatusMids.get(user.user_id) === statusMid) {
+              this.pendingStatusMids.delete(user.user_id);
+            }
+          }
+          return true;
         }
 
         if (!edited) {
