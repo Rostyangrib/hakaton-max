@@ -90,7 +90,7 @@ export function App() {
 
     if (!initData && !token && !activeSessionToken) {
       setPhase('error');
-      setMessage('Откройте профиль кнопкой или ссылкой в диалоге с ботом MAX.');
+      setMessage('Откройте профиль кнопкой «Открыть профиль» в диалоге с ботом MAX.');
       return;
     }
 
