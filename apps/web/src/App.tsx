@@ -87,6 +87,22 @@ export function App() {
       hashParams.get('tgWebAppData') ||
       urlParams.get('tgWebAppData');
 
+    const isDemo = urlParams.get('demo') === '1' || hashParams.get('demo') === '1';
+    if (isDemo) {
+      setDisplayName('Ростислав Затопляев');
+      setForm({
+        apartment: '54',
+        entrance: '3',
+        floor: '8',
+        carPlate: 'A123BC77',
+        carDescription: 'Белая Toyota Camry',
+        alertsEnabled: true,
+      });
+      setPhase('ready');
+      setMessage('Профиль заполнен');
+      return;
+    }
+
     if (!initData && !token && !activeSessionToken) {
       setPhase('error');
       setMessage('Откройте профиль кнопкой «Открыть профиль» в диалоге с ботом MAX.');
@@ -148,7 +164,7 @@ export function App() {
       });
       setForm(fromProfile(profile));
       setPhase('ready');
-      setMessage('Готово — профиль сохранён');
+      setMessage('Профиль заполнен');
     } catch (error) {
       setPhase('error');
       setMessage(error instanceof Error ? error.message : 'Не удалось сохранить профиль');
@@ -169,15 +185,15 @@ export function App() {
         <div className="header-illustration" aria-hidden="true">
           <svg
             width="128"
-            height="64"
-            viewBox="0 0 128 64"
+            height="72"
+            viewBox="0 0 128 72"
             fill="none"
             xmlns="http://www.w3.org/2000/svg"
             className="header-houses"
           >
-            {/* Building 1 (left sloped roof) */}
+            {/* Building 1 (leftmost, sloped roof) */}
             <path
-              d="M 10 38 L 26 29 L 26 64 M 14 36 L 14 64"
+              d="M 11 47 L 28.5 37 L 28.5 72 M 16 44 L 16 72"
               stroke="#8EA1B1"
               strokeWidth="1.3"
               strokeLinecap="round"
@@ -186,54 +202,62 @@ export function App() {
 
             {/* Building 2 (flat roof) */}
             <path
-              d="M 26 35 L 40 35 L 40 64"
+              d="M 28.5 41 L 43.5 41 L 43.5 72"
               stroke="#8EA1B1"
               strokeWidth="1.3"
               strokeLinecap="round"
               strokeLinejoin="round"
             />
-            <rect x="31" y="46" width="5" height="9" stroke="#8EA1B1" strokeWidth="1.3" rx="0.5" />
+            <rect x="34" y="54" width="5" height="8" rx="0.5" stroke="#8EA1B1" strokeWidth="1.3" />
 
-            {/* Sloped roof behind building 2 */}
-            <path d="M 36 26 L 55 14" stroke="#8EA1B1" strokeWidth="1.3" strokeLinecap="round" />
-            <path d="M 41 23 L 41 35" stroke="#8EA1B1" strokeWidth="1.3" strokeLinecap="round" />
-            <path d="M 52 16 L 52 20" stroke="#8EA1B1" strokeWidth="1.3" strokeLinecap="round" />
-
-            {/* Building 3 (tall center tower) */}
+            {/* Sloped roof connecting Building 2 to Tower */}
+            <path d="M 39 27 L 55 18" stroke="#8EA1B1" strokeWidth="1.3" strokeLinecap="round" />
+            {/* Curved streetlamp bracket on tower wall */}
             <path
-              d="M 55 4 L 82 4 L 82 64 M 55 14 L 55 64"
+              d="M 55 20 C 50 20 46 22 46 27"
               stroke="#8EA1B1"
               strokeWidth="1.3"
               strokeLinecap="round"
-              strokeLinejoin="round"
             />
-            <rect x="66" y="8" width="6" height="9" stroke="#8EA1B1" strokeWidth="1.3" rx="0.5" />
-            <rect x="66" y="21" width="6" height="10" stroke="#8EA1B1" strokeWidth="1.3" rx="0.5" />
-            <line x1="66" y1="26" x2="72" y2="26" stroke="#8EA1B1" strokeWidth="1.1" />
-            <rect x="66" y="35" width="6" height="6" stroke="#8EA1B1" strokeWidth="1.3" rx="0.5" />
-            <line x1="59" y1="22" x2="60.5" y2="22" stroke="#8EA1B1" strokeWidth="1.5" strokeLinecap="round" />
-            <line x1="59" y1="30" x2="60.5" y2="30" stroke="#8EA1B1" strokeWidth="1.5" strokeLinecap="round" />
-            <line x1="59" y1="39" x2="61.5" y2="39" stroke="#8EA1B1" strokeWidth="1.5" strokeLinecap="round" />
-            {/* Lit yellow window */}
-            <rect x="66" y="46" width="6" height="9" fill="#F3AE0D" rx="0.5" />
 
-            {/* Building 4 (right gable roof) */}
+            {/* Building 3 (Tall Tower) */}
             <path
-              d="M 82 9 L 106 20 L 106 64"
+              d="M 55 3 L 85 3 L 85 72 M 55 18 L 55 72"
               stroke="#8EA1B1"
               strokeWidth="1.3"
               strokeLinecap="round"
               strokeLinejoin="round"
             />
-            <path d="M 93 11 L 93 17 M 91 14 L 95 14" stroke="#8EA1B1" strokeWidth="1.3" strokeLinecap="round" />
-            {/* Lit yellow window */}
-            <rect x="92" y="27" width="6" height="9" fill="#F3AE0D" rx="0.5" />
-            <rect x="92" y="46" width="6" height="9" stroke="#8EA1B1" strokeWidth="1.3" rx="0.5" />
+            {/* Tower upper window */}
+            <rect x="67.5" y="14" width="5" height="8" rx="0.5" stroke="#8EA1B1" strokeWidth="1.3" />
+            {/* Tower middle stacked window */}
+            <rect x="67.5" y="30" width="5" height="17" rx="0.5" stroke="#8EA1B1" strokeWidth="1.3" />
+            <line x1="67.5" y1="38.5" x2="72.5" y2="38.5" stroke="#8EA1B1" strokeWidth="1.1" />
+            {/* Tower 3 tick dashes */}
+            <line x1="60" y1="32" x2="62.5" y2="32" stroke="#8EA1B1" strokeWidth="1.4" strokeLinecap="round" />
+            <line x1="60" y1="38.5" x2="62.5" y2="38.5" stroke="#8EA1B1" strokeWidth="1.4" strokeLinecap="round" />
+            <line x1="60" y1="45" x2="62.5" y2="45" stroke="#8EA1B1" strokeWidth="1.4" strokeLinecap="round" />
+            {/* Tower lower lit yellow window */}
+            <rect x="67.5" y="54" width="5" height="8" rx="0.5" fill="#F3AE0D" />
+
+            {/* Building 4 (Right Building) */}
+            <path
+              d="M 85 8 L 110.5 21 L 110.5 72"
+              stroke="#8EA1B1"
+              strokeWidth="1.3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            {/* Roof TV antenna */}
+            <line x1="96" y1="7" x2="96" y2="17" stroke="#8EA1B1" strokeWidth="1.3" strokeLinecap="round" />
+            <line x1="93.5" y1="12" x2="98.5" y2="12" stroke="#8EA1B1" strokeWidth="1.3" strokeLinecap="round" />
+            {/* Upper lit yellow window */}
+            <rect x="96" y="31" width="5" height="8" rx="0.5" fill="#F3AE0D" />
+            {/* Lower outline window */}
+            <rect x="96" y="54" width="5" height="8" rx="0.5" stroke="#8EA1B1" strokeWidth="1.3" />
           </svg>
         </div>
       </header>
-      <div className="header-divider" />
-
       {/* Hero Section */}
       <h1 className="hero-title">
         Важное —<br />
@@ -340,12 +364,13 @@ export function App() {
           <label className="field">
             <span className="field-label">Описание</span>
             <div className="input-with-counter">
-              <input
+              <textarea
                 maxLength={100}
+                rows={2}
                 placeholder="Белая Toyota Camry"
                 value={form.carDescription}
                 onChange={(e) => change('carDescription', e.target.value)}
-                className="text-input text-input--with-counter"
+                className="textarea-input"
               />
               <span className="char-counter">{form.carDescription.length} / 100</span>
             </div>
@@ -368,8 +393,8 @@ export function App() {
                 strokeLinecap="round"
                 strokeLinejoin="round"
               >
-                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                <path d="M12 2a1.8 1.8 0 0 0-1.8 1.8v0.4c-2.4 1-4.2 3.4-4.2 6.3 0 3.8-1 5.5-2 6.5h16c-1-1-2-2.7-2-6.5 0-2.9-1.8-5.3-4.2-6.3V3.8A1.8 1.8 0 0 0 12 2z" />
+                <path d="M10 19a2 2 0 0 0 4 0" />
               </svg>
             </div>
             <div>
@@ -406,6 +431,19 @@ export function App() {
                 <line x1="12" y1="8" x2="12" y2="12" />
                 <line x1="12" y1="16" x2="12.01" y2="16" />
               </svg>
+            ) : phase === 'loading' ? (
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#FFFFFF"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+              </svg>
             ) : (
               <svg
                 width="13"
@@ -424,9 +462,11 @@ export function App() {
           <span className="status-banner__text">
             {phase === 'saving'
               ? 'Сохраняем…'
-              : phase === 'error'
-                ? message
-                : 'Профиль заполнен'}
+              : phase === 'loading'
+                ? 'Загрузка данных…'
+                : phase === 'error'
+                  ? message
+                  : message || 'Профиль заполнен'}
           </span>
         </div>
 

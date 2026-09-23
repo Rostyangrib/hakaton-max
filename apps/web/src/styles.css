@@ -80,12 +80,15 @@ input, textarea, select {
   justify-content: space-between;
   align-items: flex-end;
   width: 100%;
+  border-bottom: 1px solid #B1D3DC;
+  padding-bottom: 0;
+  margin-bottom: 24px;
 }
 
 .header-text {
   display: flex;
   flex-direction: column;
-  padding-bottom: 2px;
+  padding-bottom: 16px;
 }
 
 .header-title {
@@ -110,17 +113,11 @@ input, textarea, select {
   display: flex;
   align-items: flex-end;
   flex-shrink: 0;
+  margin-bottom: -1px;
 }
 
 .header-houses {
   display: block;
-}
-
-.header-divider {
-  width: 100%;
-  height: 1px;
-  background-color: #B1D3DC;
-  margin: 0 0 24px;
 }
 
 /* Hero Title & Subtitle */
@@ -138,6 +135,7 @@ input, textarea, select {
   line-height: 1.45;
   color: #60768B;
   margin: 0 0 18px;
+  max-width: 380px;
 }
 
 /* User Badge */
@@ -160,7 +158,7 @@ input, textarea, select {
 }
 
 .user-name {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
   color: #050B25;
 }
@@ -180,7 +178,7 @@ input, textarea, select {
 }
 
 .section-number {
-  font-size: 26px;
+  font-size: 28px;
   font-weight: 800;
   line-height: 1;
 }
@@ -245,9 +243,16 @@ input, textarea, select {
   box-sizing: border-box;
 }
 
+.field textarea {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
 .text-input {
   width: 100%;
-  height: 44px;
+  height: 48px;
   background-color: #F9FCFD;
   border: 1px solid #B1D3DC;
   border-radius: 8px;
@@ -258,12 +263,14 @@ input, textarea, select {
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.text-input::placeholder {
+.text-input::placeholder,
+.textarea-input::placeholder {
   color: #738B9D;
   opacity: 0.7;
 }
 
-.text-input:focus {
+.text-input:focus,
+.textarea-input:focus {
   outline: none;
   border-color: #188DB5;
   box-shadow: 0 0 0 2px rgba(24, 141, 181, 0.15);
@@ -274,14 +281,26 @@ input, textarea, select {
   width: 100%;
 }
 
-.text-input--with-counter {
-  padding-right: 64px;
+.textarea-input {
+  width: 100%;
+  min-height: 74px;
+  background-color: #F9FCFD;
+  border: 1px solid #B1D3DC;
+  border-radius: 8px;
+  padding: 12px 14px 26px 14px;
+  font-size: 16px;
+  font-family: inherit;
+  color: #050B25;
+  box-sizing: border-box;
+  resize: none;
+  line-height: 1.4;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .char-counter {
   position: absolute;
   right: 14px;
-  bottom: 13px;
+  bottom: 10px;
   font-size: 11px;
   color: #738B9D;
   pointer-events: none;
@@ -304,6 +323,12 @@ input, textarea, select {
   position: relative;
 }
 
+@media (min-width: 380px) {
+  .grid-two {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (min-width: 440px) {
   .grid-two {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -315,7 +340,7 @@ input, textarea, select {
   width: 100%;
   height: 1px;
   background-color: #B1D3DC;
-  margin: 18px 0 22px;
+  margin: 20px 0 22px;
 }
 
 /* Notifications Row */
@@ -409,7 +434,7 @@ input, textarea, select {
   align-items: center;
   gap: 12px;
   padding: 12px 14px;
-  border-radius: 8px;
+  border-radius: 10px;
   background-color: #E0F4F1;
   border: 1px solid rgba(4, 86, 56, 0.12);
   margin-bottom: 16px;
@@ -419,6 +444,11 @@ input, textarea, select {
 .status-banner--error {
   background-color: #FDECEB;
   border-color: rgba(155, 59, 56, 0.2);
+}
+
+.status-banner--loading {
+  background-color: #EAF6FA;
+  border-color: #B1D3DC;
 }
 
 .status-banner__icon {
@@ -436,6 +466,10 @@ input, textarea, select {
   background-color: #9B3B38;
 }
 
+.status-banner--loading .status-banner__icon {
+  background-color: #188DB5;
+}
+
 .status-banner__text {
   font-size: 14px;
   font-weight: 600;
@@ -447,14 +481,28 @@ input, textarea, select {
   color: #9B3B38;
 }
 
+.status-banner--loading .status-banner__text {
+  color: #188DB5;
+}
+
+@keyframes spin {
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.spinner {
+  animation: spin 1s linear infinite;
+}
+
 /* Submit CTA Button */
 .submit-button {
   width: 100%;
-  height: 48px;
+  height: 50px;
   background-color: #188DB5;
   color: #FFFFFF;
   border: none;
-  border-radius: 8px;
+  border-radius: 12px;
   font-size: 16px;
   font-weight: 600;
   cursor: pointer;
