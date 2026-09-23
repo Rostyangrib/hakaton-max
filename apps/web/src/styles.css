@@ -29,6 +29,8 @@ body {
 
 input, textarea, select {
   max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .page {
@@ -51,10 +53,52 @@ form { display: grid; gap: 12px; width: 100%; }
 .section-heading h2 { margin: 0; font-size: 17px; }
 .section-heading p { margin: 2px 0 0; color: #8a909d; font-size: 12px; }
 .step { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 9px; color: #5d5fef; background: #eeeeff; font-size: 12px; font-weight: 800; }
-label { display: grid; gap: 6px; color: #383d47; font-size: 13px; font-weight: 650; width: 100%; }
-label small { justify-self: end; color: #9499a5; font-weight: 400; }
-.grid-two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; }
-.grid-two > * { min-width: 0; }
+.field,
+label:not([class*="Input"]):not([class*="CellInput"]) {
+  display: grid;
+  gap: 6px;
+  color: #383d47;
+  font-size: 13px;
+  font-weight: 650;
+  width: 100%;
+  min-width: 0;
+  position: relative;
+}
+.field small,
+label:not([class*="Input"]):not([class*="CellInput"]) small {
+  justify-self: end;
+  color: #9499a5;
+  font-weight: 400;
+}
+.field > div,
+.field input {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.grid-two {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+}
+.grid-two > * {
+  min-width: 0;
+  max-width: 100%;
+  width: 100%;
+  position: relative;
+}
+
+@media (min-width: 440px) {
+  .grid-two {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+}
+
 .notifications { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 15px 14px; border-radius: 18px; background: #fff; width: 100%; }
 .notifications strong { font-size: 14px; }
 .notifications p { margin: 3px 0 0; color: #858b97; font-size: 12px; }
@@ -66,7 +110,7 @@ label small { justify-self: end; color: #9499a5; font-weight: 400; }
 @media (max-width: 360px) {
   .page { padding: 12px 8px 24px; }
   .section { padding: 12px 10px; }
-  .grid-two { grid-template-columns: 1fr 1fr; gap: 6px; }
+  .grid-two { gap: 10px; }
   h1 { font-size: 21px; }
   .logo { width: 42px; height: 42px; font-size: 15px; }
 }
@@ -76,8 +120,10 @@ label small { justify-self: end; color: #9499a5; font-weight: 400; }
   body { color: #f7f7f8; background: #15171b; }
   .intro { color: #aeb3bd; }
   .section { color: #f7f7f8; border-color: #343741; background: #23252c; box-shadow: none; }
-  .section label { color: #e9ebef; }
+  .section .field,
+  .section label:not([class*="Input"]):not([class*="CellInput"]) { color: #e9ebef; }
   .section-heading p,
+  .field small,
   label small,
   .notifications p,
   .privacy { color: #aeb3bd; }

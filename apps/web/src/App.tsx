@@ -179,16 +179,16 @@ export function App() {
             <span className="step">1</span>
             <div><h2 id="home-title">Дом</h2><p>Обязательные поля</p></div>
           </div>
-          <label>
+          <label className="field">
             <span>Квартира</span>
             <Input required inputMode="numeric" min="1" max="9999" placeholder="Например, 54" value={form.apartment} onChange={(e) => change('apartment', e.target.value)} />
           </label>
           <div className="grid-two">
-            <label>
+            <label className="field">
               <span>Подъезд</span>
               <Input required inputMode="numeric" min="1" max="999" placeholder="3" value={form.entrance} onChange={(e) => change('entrance', e.target.value)} />
             </label>
-            <label>
+            <label className="field">
               <span>Этаж</span>
               <Input inputMode="numeric" min="-9" max="999" placeholder="8" value={form.floor} onChange={(e) => change('floor', e.target.value)} />
             </label>
@@ -200,11 +200,11 @@ export function App() {
             <span className="step">2</span>
             <div><h2 id="car-title">Автомобиль</h2><p>Необязательно</p></div>
           </div>
-          <label>
+          <label className="field">
             <span>Госномер</span>
             <Input maxLength={32} autoCapitalize="characters" placeholder="А123ВС77" value={form.carPlate} onChange={(e) => change('carPlate', e.target.value)} />
           </label>
-          <label>
+          <label className="field">
             <span>Описание</span>
             <Textarea maxLength={100} rows={3} placeholder="Белая Toyota Camry" value={form.carDescription} onChange={(e) => change('carDescription', e.target.value)} />
             <small>{form.carDescription.length}/100</small>
