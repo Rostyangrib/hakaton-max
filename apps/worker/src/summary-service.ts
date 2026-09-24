@@ -11,6 +11,7 @@ import {
 export interface SummaryHome {
   id: string;
   timezone: string;
+  apartment?: number;
 }
 
 export interface SummaryRepository {
@@ -41,15 +42,17 @@ export class SummaryService {
     if (!home) throw new SummaryAccessError('Resident profile is required to request a summary');
 
     const now = this.now();
+    const { from, to } = getSummaryPeriodRange(period, now, home.timezone);
     const cached = await this.repository.findCached(
       home.id,
       maxUserId,
       period,
       new Date(now.getTime() - this.cacheTtlSeconds * 1_000),
     );
-    if (cached) return { ...cached, cached: true };
+    if (cached && (period !== 'today' || cached.periodFrom === from.toISOString())) {
+      return { ...cached, cached: true };
+    }
 
-    const { from, to } = getSummaryPeriodRange(period, now, home.timezone);
     const sourceMessages = await this.repository.listMessages(home.id, from, to);
     const prepared = prepareSummaryMessages(sourceMessages);
     const jobId = await this.repository.createJob({
@@ -67,6 +70,12 @@ export class SummaryService {
       if (!this.model) throw new Error('YandexGPT is not configured');
       categories = await this.model.summarize(prepared);
     } catch (cause) {
+      console.warn(JSON.stringify({
+        level: 'warn',
+        service: 'worker',
+        message: 'YandexGPT failed, using fallback summary',
+        error: cause instanceof Error ? cause.message : String(cause),
+      }));
       mode = 'fallback';
       error = (cause instanceof Error ? cause.message : 'Unknown YandexGPT error').slice(0, 2_000);
       categories = createFallbackSummary(prepared);

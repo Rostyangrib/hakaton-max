@@ -97,9 +97,24 @@ export function createFallbackSummary(messages: SummarySourceMessage[]): Summary
 }
 
 export function assertValidSources(categories: SummaryCategories, allowedIds: Set<string>): SummaryCategories {
+  const allowedList = [...allowedIds];
   const validate = (items: SummaryItem[]) => items.map((item) => {
-    const sourceMessageIds = [...new Set(item.sourceMessageIds)];
-    if (sourceMessageIds.length === 0 || sourceMessageIds.some((id) => !allowedIds.has(id))) {
+    const resolved = item.sourceMessageIds.map((rawId) => {
+      const id = String(rawId).replace(/^[[#\s]+|[\]\s]+$/g, '').trim();
+      if (!id) return null;
+      if (allowedIds.has(id)) return id;
+      const prefix = allowedList.find((allowed) => allowed.startsWith(id) || id.startsWith(allowed));
+      if (prefix) return prefix;
+      const match = id.match(/^(?:m|#)?(\d+)$/i);
+      if (match) {
+        const index = parseInt(match[1]!, 10) - 1;
+        if (index >= 0 && index < allowedList.length) return allowedList[index]!;
+      }
+      return null;
+    }).filter((id): id is string => id !== null);
+
+    const sourceMessageIds = [...new Set(resolved)];
+    if (sourceMessageIds.length === 0) {
       throw new Error('YandexGPT returned an unknown source message id');
     }
     return { ...item, sourceMessageIds };
@@ -113,8 +128,10 @@ function renderCategory(title: string, items: SummaryItem[]): string[] {
 
 export function renderSummary(result: SummaryResult): string {
   const periodLabels: Record<SummaryPeriod, string> = { today: 'сегодня', week: 'последние 7 дней', month: 'последние 30 дней' };
+  const header = `**Сводка за ${periodLabels[result.period]}**`;
+
   return [
-    `**Сводка за ${periodLabels[result.period]}**`, '',
+    header, '',
     ...renderCategory('🔴 **ЖКХ и аварии**', result.housing), '',
     ...renderCategory('🟡 **Двор и транспорт**', result.yard), '',
     ...renderCategory('🟢 **Соседские дела и находки**', result.community), '',

@@ -25,7 +25,8 @@ export function validateMaxInitData(
 ): MaxUser {
   if (!rawInitData) throw new MaxInitDataError('initData is empty');
 
-  const params = new URLSearchParams(rawInitData);
+  const cleanData = rawInitData.replace(/^[#?]/, '');
+  const params = new URLSearchParams(cleanData);
   const keys = [...params.keys()];
   if (new Set(keys).size !== keys.length) throw new MaxInitDataError('initData contains duplicate fields');
 

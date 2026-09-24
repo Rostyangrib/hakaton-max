@@ -14,26 +14,43 @@ type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<
 
 const responseJsonSchema = {
   type: 'object',
-  additionalProperties: false,
   properties: {
-    housing: { type: 'array', maxItems: 10, items: summaryItemJsonSchema() },
-    yard: { type: 'array', maxItems: 10, items: summaryItemJsonSchema() },
-    community: { type: 'array', maxItems: 10, items: summaryItemJsonSchema() },
+    housing: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          text: { type: 'string' },
+          sourceMessageIds: { type: 'array', items: { type: 'string' } },
+        },
+        required: ['text', 'sourceMessageIds'],
+      },
+    },
+    yard: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          text: { type: 'string' },
+          sourceMessageIds: { type: 'array', items: { type: 'string' } },
+        },
+        required: ['text', 'sourceMessageIds'],
+      },
+    },
+    community: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          text: { type: 'string' },
+          sourceMessageIds: { type: 'array', items: { type: 'string' } },
+        },
+        required: ['text', 'sourceMessageIds'],
+      },
+    },
   },
   required: ['housing', 'yard', 'community'],
 };
-
-function summaryItemJsonSchema() {
-  return {
-    type: 'object',
-    additionalProperties: false,
-    properties: {
-      text: { type: 'string', minLength: 1, maxLength: 500 },
-      sourceMessageIds: { type: 'array', minItems: 1, maxItems: 20, items: { type: 'string' } },
-    },
-    required: ['text', 'sourceMessageIds'],
-  };
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -54,20 +71,114 @@ const systemPrompt = [
   'Если в категории нет фактов, верни пустой массив.',
 ].join(' ');
 
+function tryRepairJson(str: string): unknown {
+  let inString = false;
+  let escape = false;
+  const stack: string[] = [];
+  for (let i = 0; i < str.length; i += 1) {
+    const char = str[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (char === '\\') {
+      escape = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (char === '{' || char === '[') {
+      stack.push(char);
+    } else if (char === '}') {
+      if (stack[stack.length - 1] === '{') stack.pop();
+    } else if (char === ']') {
+      if (stack[stack.length - 1] === '[') stack.pop();
+    }
+  }
+
+  let repaired = str;
+  if (inString) repaired += '"';
+  repaired = repaired.replace(/,\s*([}\]]|$)/g, '$1');
+  while (stack.length > 0) {
+    const open = stack.pop();
+    repaired += open === '{' ? '}' : ']';
+  }
+  return JSON.parse(repaired);
+}
+
+function extractJson(text: string): unknown {
+  const trimmed = text.trim();
+  const withoutFences = trimmed.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+  try {
+    return JSON.parse(withoutFences);
+  } catch {
+    const firstBrace = withoutFences.indexOf('{');
+    const lastBrace = withoutFences.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      try {
+        return JSON.parse(withoutFences.slice(firstBrace, lastBrace + 1));
+      } catch {
+        // try repair below
+      }
+    }
+    try {
+      return tryRepairJson(firstBrace !== -1 ? withoutFences.slice(firstBrace) : withoutFences);
+    } catch {
+      throw new Error(`Unable to parse JSON from YandexGPT response: ${trimmed.slice(0, 200)}`);
+    }
+  }
+}
+
+function cleanCategories(raw: unknown): SummaryCategories {
+  const obj = isRecord(raw) ? raw : {};
+  const cleanList = (items: unknown) => {
+    if (!Array.isArray(items)) return [];
+    return items
+      .map((item) => {
+        if (!isRecord(item) || typeof item.text !== 'string' || !item.text.trim()) return null;
+        const sourceMessageIds = Array.isArray(item.sourceMessageIds)
+          ? item.sourceMessageIds.map(String).filter(Boolean)
+          : [];
+        return {
+          text: item.text.trim().slice(0, 500),
+          sourceMessageIds: sourceMessageIds.length > 0 ? sourceMessageIds.slice(0, 20) : ['1'],
+        };
+      })
+      .filter((item): item is { text: string; sourceMessageIds: string[] } => item !== null)
+      .slice(0, 10);
+  };
+  return {
+    housing: cleanList(obj.housing),
+    yard: cleanList(obj.yard),
+    community: cleanList(obj.community),
+  };
+}
+
 export class YandexGptClient {
-  private readonly modelUri: string;
+  private modelUri: string;
+  private readonly fallbackModelUri: string;
 
   constructor(private readonly options: YandexGptOptions, private readonly fetchImpl: FetchLike = fetch) {
-    this.modelUri = options.modelUri ?? `gpt://${options.folderId}/yandexgpt/latest`;
+    this.modelUri = options.modelUri ?? `gpt://${options.folderId}/yandexgpt-lite/latest`;
+    this.fallbackModelUri = `gpt://${options.folderId}/yandexgpt/latest`;
   }
 
   async summarize(messages: SummarySourceMessage[]): Promise<SummaryCategories> {
     if (messages.length === 0) return { housing: [], yard: [], community: [] };
     const chunks = chunkSummaryMessages(messages);
-    const mapped = await Promise.all(chunks.map((chunk) => this.complete([
-      { role: 'system', text: systemPrompt },
-      { role: 'user', text: `Составь промежуточную сводку по сообщениям:\n${formatMessages(chunk)}` },
-    ])));
+    const mapped: SummaryCategories[] = [];
+
+    // Process chunks sequentially to respect rate limits (1 RPS)
+    for (const chunk of chunks) {
+      const summary = await this.complete([
+        { role: 'system', text: systemPrompt },
+        { role: 'user', text: `Составь промежуточную сводку по сообщениям:\n${formatMessages(chunk)}` },
+      ]);
+      mapped.push(summary);
+    }
 
     const categories = mapped.length === 1 ? mapped[0] : await this.complete([
       { role: 'system', text: systemPrompt },
@@ -82,6 +193,40 @@ export class YandexGptClient {
   }
 
   private async complete(messages: Array<{ role: 'system' | 'user'; text: string }>): Promise<SummaryCategories> {
+    return this.sendWithRetry(messages, true, false);
+  }
+
+  private async sendWithRetry(
+    messages: Array<{ role: 'system' | 'user'; text: string }>,
+    withSchema: boolean,
+    isRetry: boolean,
+  ): Promise<SummaryCategories> {
+    const completionOptions: Record<string, unknown> = {
+      stream: false,
+      temperature: 0.2,
+      maxTokens: 2000,
+    };
+    if (withSchema) {
+      completionOptions.jsonSchema = { schema: responseJsonSchema };
+    }
+    const bodyPayload: Record<string, unknown> = {
+      modelUri: this.modelUri,
+      completionOptions,
+      messages,
+      ...(withSchema ? { jsonSchema: { schema: responseJsonSchema } } : {}),
+    };
+
+    console.info(JSON.stringify({
+      level: 'info',
+      service: 'worker',
+      message: 'Calling YandexGPT',
+      modelUri: this.modelUri,
+      timeoutMs: this.options.timeoutMs,
+      withSchema,
+      isRetry,
+    }));
+
+    const startTime = Date.now();
     const response = await this.fetchImpl(this.options.apiUrl, {
       method: 'POST',
       headers: {
@@ -89,22 +234,50 @@ export class YandexGptClient {
         'Content-Type': 'application/json',
         'x-folder-id': this.options.folderId,
       },
-      body: JSON.stringify({
-        modelUri: this.modelUri,
-        completionOptions: { stream: false, temperature: 0.2, maxTokens: '2000' },
-        messages,
-        jsonSchema: { schema: responseJsonSchema },
-      }),
+      body: JSON.stringify(bodyPayload),
       signal: AbortSignal.timeout(this.options.timeoutMs),
     });
-    if (!response.ok) throw new Error(`YandexGPT request failed with status ${response.status}`);
+
+    console.info(JSON.stringify({
+      level: 'info',
+      service: 'worker',
+      message: 'YandexGPT response received',
+      status: response.status,
+      elapsedMs: Date.now() - startTime,
+    }));
+
+    // Handle 429 Too Many Requests (rate limit) with single retry
+    if (response.status === 429 && !isRetry) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      return this.sendWithRetry(messages, withSchema, true);
+    }
+
+    // Handle 400 Bad Request by retrying without jsonSchema
+    if (response.status === 400 && withSchema) {
+      return this.sendWithRetry(messages, false, isRetry);
+    }
+
+    // Handle model not found error by falling back to yandexgpt-lite
+    if ((response.status === 404 || response.status === 400) && !this.options.modelUri && this.modelUri !== this.fallbackModelUri) {
+      this.modelUri = this.fallbackModelUri;
+      return this.sendWithRetry(messages, withSchema, true);
+    }
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      throw new Error(`YandexGPT request failed with status ${response.status}: ${errorText.slice(0, 500)}`);
+    }
+
     const body: unknown = await response.json();
     const result = isRecord(body) && isRecord(body.result) ? body.result : isRecord(body) ? body : null;
     const alternatives = result && Array.isArray(result.alternatives) ? result.alternatives : [];
     const first = isRecord(alternatives[0]) ? alternatives[0] : null;
-    if (first?.status !== 'ALTERNATIVE_STATUS_FINAL') throw new Error('YandexGPT returned a non-final response');
+    const status = first && typeof first.status === 'string' ? first.status : undefined;
+    if (status && status !== 'ALTERNATIVE_STATUS_FINAL' && status !== 'ALTERNATIVE_STATUS_TRUNCATED_FINAL') {
+      throw new Error(`YandexGPT returned a non-final response: ${status}`);
+    }
     const message = first && isRecord(first.message) ? first.message : null;
     if (typeof message?.text !== 'string') throw new Error('YandexGPT response has no text');
-    return summaryCategoriesSchema.parse(JSON.parse(message.text));
+    return summaryCategoriesSchema.parse(cleanCategories(extractJson(message.text)));
   }
 }

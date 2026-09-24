@@ -61,6 +61,20 @@ export const residentProfiles = pgTable(
     carPlateNormalized: varchar('car_plate_normalized', { length: 16 }),
     carDescription: varchar('car_description', { length: 100 }),
     carKeywords: text('car_keywords').array().notNull().default([]),
+    properties: jsonb('properties').$type<Array<{
+      id?: string | undefined;
+      title?: string | undefined;
+      chatId?: number | undefined;
+      apartment: number;
+      entrance: number;
+      floor?: number | null | undefined;
+    }>>(),
+    vehicles: jsonb('vehicles').$type<Array<{
+      id?: string | undefined;
+      plate?: string | null | undefined;
+      plateNormalized?: string | null | undefined;
+      description?: string | null | undefined;
+    }>>(),
     alertsEnabled: boolean('alerts_enabled').notNull().default(true),
     membershipVerifiedAt: timestamp('membership_verified_at', { withTimezone: true }),
     ...timestamps,

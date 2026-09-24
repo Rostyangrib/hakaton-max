@@ -1,3 +1,5 @@
+import { createHmac } from 'node:crypto';
+
 import { loadConfig } from '@quiet-chat/config';
 import type { MaxUpdate, MaxUser, ResidentProfile, ResidentProfileInput } from '@quiet-chat/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -19,6 +21,8 @@ function services(overrides: Partial<ApiServices> = {}): ApiServices {
       getProfile: vi.fn(async () => null),
       saveProfile: vi.fn(async (_userId: bigint, _chatId: bigint, input: ResidentProfileInput, verifiedAt: Date): Promise<ResidentProfile> => ({
         ...input,
+        properties: input.properties ?? [],
+        vehicles: input.vehicles ?? [],
         floor: input.floor ?? null,
         carPlate: input.carPlate ?? null,
         carDescription: input.carDescription ?? null,
@@ -87,11 +91,86 @@ describe('profile routes', () => {
     expect(saved.statusCode).toBe(200);
     expect(saved.json().data.apartment).toBe(54);
     expect(profileServices.profiles.saveProfile).toHaveBeenCalledOnce();
+
+    const savedWithBearer = await app.inject({
+      method: 'PUT',
+      url: '/api/profile',
+      headers: { authorization: `Bearer ${createSession(10n, 'session-secret-with-enough-entropy', 3_600)}` },
+      payload,
+    });
+    expect(savedWithBearer.statusCode).toBe(200);
+    expect(savedWithBearer.json().data.apartment).toBe(54);
+  });
+
+  it('saves multiple vehicles for a resident profile', async () => {
+    const profileServices = services();
+    const app = await buildApp({ config: config(), databaseCheck: async () => {}, services: profileServices });
+    apps.push(app);
+    const cookie = `quietchat_session=${createSession(10n, 'session-secret-with-enough-entropy', 3_600)}`;
+    const payload = {
+      apartment: 54,
+      entrance: 3,
+      floor: 8,
+      vehicles: [
+        { plate: 'А123ВС77', description: 'Белая Camry' },
+        { plate: 'В456ОР77', description: 'Черный Haval' },
+      ],
+      alertsEnabled: true,
+    };
+
+    const saved = await app.inject({ method: 'PUT', url: '/api/profile', headers: { cookie }, payload });
+    expect(saved.statusCode).toBe(200);
+    const data = saved.json().data;
+    expect(data.apartment).toBe(54);
+    expect(data.vehicles).toHaveLength(2);
+    expect(data.vehicles[0].plate).toBe('А123ВС77');
+    expect(data.vehicles[1].description).toBe('Черный Haval');
+  });
+});
+
+describe('MAX initData auth route', () => {
+  it('authenticates user by valid signed initData with id and returns sessionToken', async () => {
+    const profileServices = services();
+    const app = await buildApp({ config: config(), databaseCheck: async () => {}, services: profileServices });
+    apps.push(app);
+
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const params = new URLSearchParams({
+      auth_date: String(nowSeconds),
+      query_id: 'test-query-max',
+      user: JSON.stringify({
+        id: 215608884,
+        first_name: 'Иван',
+        last_name: null,
+        username: null,
+      }),
+    });
+    const checkString = [...params.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, value]) => `${key}=${value}`)
+      .join('\n');
+    const secretKey = createHmac('sha256', 'WebAppData').update('test-token').digest();
+    params.set('hash', createHmac('sha256', secretKey).update(checkString).digest('hex'));
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/auth/max',
+      payload: { initData: params.toString() },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.data.displayName).toBe('Иван');
+    expect(body.data.sessionToken).toBeDefined();
+    expect(response.headers['set-cookie']).toContain('quietchat_session=');
+    expect(profileServices.profiles.upsertUser).toHaveBeenCalledWith(
+      expect.objectContaining({ user_id: 215608884, first_name: 'Иван' }),
+    );
   });
 });
 
 describe('token auth route', () => {
-  it('authenticates user by valid signed token and sets session cookie', async () => {
+  it('authenticates user by valid signed token and sets session cookie and returns sessionToken', async () => {
     const profileServices = services({
       profiles: {
         ...services().profiles,
@@ -109,6 +188,7 @@ describe('token auth route', () => {
     });
     expect(response.statusCode).toBe(200);
     expect(response.json().data.displayName).toBe('Ростислав Затопляев');
+    expect(response.json().data.sessionToken).toBe(validToken);
     expect(response.headers['set-cookie']).toContain('quietchat_session=');
 
     const invalidResponse = await app.inject({

@@ -28,12 +28,22 @@ const environmentSchema = z.object({
   YANDEX_CLOUD_API_KEY: optionalString,
   YANDEXGPT_MODEL_URI: optionalString,
   YANDEXGPT_API_URL: z.url().default('https://llm.api.cloud.yandex.net/foundationModels/v1/completion'),
-  YANDEXGPT_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(30_000).default(12_000),
+  YANDEXGPT_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(120_000).default(60_000),
   SUMMARY_CACHE_TTL_SECONDS: z.coerce.number().int().min(60).max(86_400).default(600),
 });
 
 export type AppConfig = z.infer<typeof environmentSchema>;
 
 export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppConfig {
-  return environmentSchema.parse(environment);
+  const env = { ...environment };
+  if (!env.YANDEX_CLOUD_FOLDER_ID && env.YANDEX_FOLDER_ID) {
+    env.YANDEX_CLOUD_FOLDER_ID = env.YANDEX_FOLDER_ID;
+  }
+  if (!env.YANDEX_CLOUD_API_KEY) {
+    env.YANDEX_CLOUD_API_KEY = env.YANDEX_API_KEY || env.YC_API_KEY;
+  }
+  if (!env.YANDEXGPT_MODEL_URI && env.YANDEX_MODEL_URI) {
+    env.YANDEXGPT_MODEL_URI = env.YANDEX_MODEL_URI;
+  }
+  return environmentSchema.parse(env);
 }

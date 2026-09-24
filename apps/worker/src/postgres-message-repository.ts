@@ -1,4 +1,4 @@
-import { and, eq, isNotNull, ne } from 'drizzle-orm';
+import { and, eq, isNotNull } from 'drizzle-orm';
 
 import type { createDatabase } from '@quiet-chat/database';
 import { homes, messages, residentProfiles } from '@quiet-chat/database';
@@ -114,7 +114,7 @@ export class PostgresMessageRepository implements MessageRepository {
     return rows.length > 0;
   }
 
-  async findAlertProfiles(homeId: string, senderUserId: bigint): Promise<AlertProfile[]> {
+  async findAlertProfiles(homeId: string, _senderUserId?: bigint): Promise<AlertProfile[]> {
     return this.database.db
       .select({
         id: residentProfiles.id,
@@ -123,13 +123,14 @@ export class PostgresMessageRepository implements MessageRepository {
         entrance: residentProfiles.entrance,
         carPlateNormalized: residentProfiles.carPlateNormalized,
         carDescription: residentProfiles.carDescription,
+        properties: residentProfiles.properties,
+        vehicles: residentProfiles.vehicles,
       })
       .from(residentProfiles)
       .where(and(
         eq(residentProfiles.homeId, homeId),
         eq(residentProfiles.alertsEnabled, true),
         isNotNull(residentProfiles.membershipVerifiedAt),
-        ne(residentProfiles.maxUserId, senderUserId),
       ));
   }
 

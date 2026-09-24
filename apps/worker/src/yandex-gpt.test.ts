@@ -48,6 +48,23 @@ describe('YandexGptClient', () => {
     await expect(client.summarize([{ id: 'm1', senderDisplayName: 'Анна', text: 'Лифт сломан', sentAt: now() }]))
       .resolves.toEqual(empty);
   });
+
+  it('correctly parses JSON wrapped in markdown code blocks and with truncated status', async () => {
+    const markdownWrapped = `\`\`\`json\n${JSON.stringify({
+      housing: [{ text: 'Лифт починен', sourceMessageIds: ['m1'] }],
+      yard: [],
+      community: [],
+    })}\n\`\`\``;
+    const fetchMock = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => new Response(JSON.stringify({
+      alternatives: [{ status: 'ALTERNATIVE_STATUS_TRUNCATED_FINAL', message: { text: markdownWrapped } }],
+    }), { status: 200 }));
+    const client = new YandexGptClient({
+      apiKey: 'test-key', folderId: 'test-folder', apiUrl: 'https://example.test/completion', timeoutMs: 1_000,
+    }, fetchMock);
+    const result = await client.summarize([{ id: 'm1', senderDisplayName: 'Анна', text: 'Лифт сломан', sentAt: now() }]);
+    expect(result.housing).toHaveLength(1);
+    expect(result.housing[0]?.text).toBe('Лифт починен');
+  });
 });
 
 function now() {

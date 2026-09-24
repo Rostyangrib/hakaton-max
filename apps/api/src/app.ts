@@ -90,15 +90,16 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     try {
       const user = validateMaxInitData(parsed.data.initData, token, dependencies.config.MAX_INIT_DATA_MAX_AGE_SECONDS);
       await dependencies.services.profiles.upsertUser(user);
-      reply.setCookie(sessionCookie, createSession(BigInt(user.user_id), sessionSecret, dependencies.config.SESSION_TTL_SECONDS), {
+      const sessionToken = createSession(BigInt(user.user_id), sessionSecret, dependencies.config.SESSION_TTL_SECONDS);
+      reply.setCookie(sessionCookie, sessionToken, {
         httpOnly: true,
         secure: dependencies.config.NODE_ENV === 'production',
-        sameSite: 'lax',
+        sameSite: dependencies.config.NODE_ENV === 'production' ? 'none' : 'lax',
         path: '/',
         maxAge: dependencies.config.SESSION_TTL_SECONDS,
       });
       const displayName = [user.first_name, user.last_name].filter(Boolean).join(' ');
-      return reply.code(200).send(envelope(request.id, { displayName }));
+      return reply.code(200).send(envelope(request.id, { displayName, sessionToken }));
     } catch (error) {
       if (error instanceof MaxInitDataError) {
         return fail(reply, 401, request.id, 'INVALID_INIT_DATA', 'MAX authorization data is invalid or expired');
@@ -127,20 +128,26 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     reply.setCookie(sessionCookie, parsed.data.token, {
       httpOnly: true,
       secure: dependencies.config.NODE_ENV === 'production',
-      sameSite: 'lax',
+      sameSite: dependencies.config.NODE_ENV === 'production' ? 'none' : 'lax',
       path: '/',
       maxAge: dependencies.config.SESSION_TTL_SECONDS,
     });
-    return reply.code(200).send(envelope(request.id, { displayName: user?.displayName ?? 'Жилец' }));
+    return reply.code(200).send(envelope(request.id, { displayName: user?.displayName ?? 'Жилец', sessionToken: parsed.data.token }));
   });
 
-  async function profileContext(request: { id: string; cookies: Record<string, string | undefined> }, reply: FastifyReply) {
+  async function profileContext(
+    request: { id: string; cookies: Record<string, string | undefined>; headers?: Record<string, unknown> },
+    reply: FastifyReply,
+  ) {
     const { SESSION_SECRET: secret, MAX_HOME_CHAT_ID: chatId } = dependencies.config;
     if (!dependencies.services || !secret || !chatId) {
       fail(reply, 503, request.id, 'MAX_NOT_CONFIGURED', 'MAX profile integration is not configured');
       return null;
     }
-    const maxUserId = verifySession(request.cookies[sessionCookie], secret);
+    const authHeader = typeof request.headers?.authorization === 'string' ? request.headers.authorization : undefined;
+    const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : undefined;
+    const token = bearerToken || request.cookies[sessionCookie];
+    const maxUserId = verifySession(token, secret);
     if (!maxUserId) {
       fail(reply, 401, request.id, 'UNAUTHORIZED', 'MAX session is missing or expired');
       return null;
