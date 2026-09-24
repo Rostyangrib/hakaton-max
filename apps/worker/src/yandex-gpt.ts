@@ -162,8 +162,8 @@ export class YandexGptClient {
   private readonly fallbackModelUri: string;
 
   constructor(private readonly options: YandexGptOptions, private readonly fetchImpl: FetchLike = fetch) {
-    this.modelUri = options.modelUri ?? `gpt://${options.folderId}/yandexgpt/latest`;
-    this.fallbackModelUri = `gpt://${options.folderId}/yandexgpt-lite/latest`;
+    this.modelUri = options.modelUri ?? `gpt://${options.folderId}/yandexgpt-lite/latest`;
+    this.fallbackModelUri = `gpt://${options.folderId}/yandexgpt/latest`;
   }
 
   async summarize(messages: SummarySourceMessage[]): Promise<SummaryCategories> {
