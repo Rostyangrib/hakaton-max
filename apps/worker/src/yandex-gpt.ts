@@ -144,7 +144,7 @@ function cleanCategories(raw: unknown): SummaryCategories {
           : [];
         return {
           text: item.text.trim().slice(0, 500),
-          sourceMessageIds: sourceMessageIds.length > 0 ? sourceMessageIds.slice(0, 20) : ['m_source'],
+          sourceMessageIds: sourceMessageIds.length > 0 ? sourceMessageIds.slice(0, 20) : ['1'],
         };
       })
       .filter((item): item is { text: string; sourceMessageIds: string[] } => item !== null)
