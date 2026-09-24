@@ -31,7 +31,7 @@ const summaryModel = config.YANDEX_CLOUD_API_KEY && config.YANDEX_CLOUD_FOLDER_I
       folderId: config.YANDEX_CLOUD_FOLDER_ID,
       ...(config.YANDEXGPT_MODEL_URI ? { modelUri: config.YANDEXGPT_MODEL_URI } : {}),
       apiUrl: config.YANDEXGPT_API_URL,
-      timeoutMs: config.YANDEXGPT_TIMEOUT_MS,
+      timeoutMs: Math.max(60_000, config.YANDEXGPT_TIMEOUT_MS),
     })
   : null;
 if (!summaryModel) {
