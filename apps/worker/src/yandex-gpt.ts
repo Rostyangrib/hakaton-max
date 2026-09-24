@@ -201,15 +201,32 @@ export class YandexGptClient {
     withSchema: boolean,
     isRetry: boolean,
   ): Promise<SummaryCategories> {
-    const bodyPayload: Record<string, unknown> = {
-      modelUri: this.modelUri,
-      completionOptions: { stream: false, temperature: 0.2, maxTokens: 2000 },
-      messages,
+    const completionOptions: Record<string, unknown> = {
+      stream: false,
+      temperature: 0.2,
+      maxTokens: 2000,
     };
     if (withSchema) {
-      bodyPayload.jsonSchema = { schema: responseJsonSchema };
+      completionOptions.jsonSchema = { schema: responseJsonSchema };
     }
+    const bodyPayload: Record<string, unknown> = {
+      modelUri: this.modelUri,
+      completionOptions,
+      messages,
+      ...(withSchema ? { jsonSchema: { schema: responseJsonSchema } } : {}),
+    };
 
+    console.info(JSON.stringify({
+      level: 'info',
+      service: 'worker',
+      message: 'Calling YandexGPT',
+      modelUri: this.modelUri,
+      timeoutMs: this.options.timeoutMs,
+      withSchema,
+      isRetry,
+    }));
+
+    const startTime = Date.now();
     const response = await this.fetchImpl(this.options.apiUrl, {
       method: 'POST',
       headers: {
@@ -220,6 +237,14 @@ export class YandexGptClient {
       body: JSON.stringify(bodyPayload),
       signal: AbortSignal.timeout(this.options.timeoutMs),
     });
+
+    console.info(JSON.stringify({
+      level: 'info',
+      service: 'worker',
+      message: 'YandexGPT response received',
+      status: response.status,
+      elapsedMs: Date.now() - startTime,
+    }));
 
     // Handle 429 Too Many Requests (rate limit) with single retry
     if (response.status === 429 && !isRetry) {
