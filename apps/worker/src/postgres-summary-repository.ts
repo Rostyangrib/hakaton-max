@@ -40,7 +40,7 @@ export class PostgresSummaryRepository implements SummaryRepository {
   async findCached(homeId: string, maxUserId: bigint, period: SummaryPeriod, createdAfter: Date): Promise<SummaryResult | null> {
     const response = await this.database.pool.query<{ result: unknown }>(
       `select sj.result from summary_jobs sj
-       where sj.home_id = $1 and sj.status = 'done'
+       where sj.home_id = $1 and sj.status = 'done' and sj.mode = 'yandexgpt'
          and sj.created_at >= $3 and sj.result ->> 'period' = $4
          and not exists (
            select 1 from messages m
