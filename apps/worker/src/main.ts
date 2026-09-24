@@ -2,16 +2,15 @@ import { Bot } from '@maxhub/max-bot-api';
 import { eq } from 'drizzle-orm';
 import { loadConfig } from '@quiet-chat/config';
 import { createDatabase, users } from '@quiet-chat/database';
-import { maxUpdateSchema, summaryPeriodSchema } from '@quiet-chat/shared';
+import { maxUpdateSchema } from '@quiet-chat/shared';
 
-import { createSummaryKeyboard, createWelcomeKeyboard, welcomeText } from './menu.js';
+import { createWelcomeKeyboard, welcomeText } from './menu.js';
 import { MessagePipeline } from './message-pipeline.js';
 import { PostgresMessageRepository } from './postgres-message-repository.js';
 import { PostgresSummaryRepository } from './postgres-summary-repository.js';
 import { createSession } from './session.js';
-import { renderSummary } from './summary.js';
 import { SummaryCallbackHandler } from './summary-callback-handler.js';
-import { SummaryAccessError, SummaryService } from './summary-service.js';
+import { SummaryService } from './summary-service.js';
 import { YandexGptClient } from './yandex-gpt.js';
 
 const config = loadConfig();

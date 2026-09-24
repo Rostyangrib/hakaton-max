@@ -103,10 +103,10 @@
 - [x] На VM установлены Docker Engine, Compose v2 и swap 2 ГБ; зарегистрирован `quiet-chat-deploy.service`.
 - [x] В Lockbox внесены токен нового MAX-бота, chat ID домового чата (`-79181109403700`) и Yandex API key.
 - [x] Production-стек успешно собран и запущен на VM через Docker Compose; миграции БД выполнены, все контейнеры в статусе Up.
-- [x] Завершена проверка входящей доступности HTTPS: Caddy автоматически получил валидный TLS-сертификат Let's Encrypt для `158-160-237-183.sslip.io`.
+- [x] Завершена проверка входящей доступности HTTPS: Caddy автоматически получил валидный TLS-сертификат Let's Encrypt для `158-160-226-198.sslip.io`.
 - [x] Подключены корневые доверенные сертификаты Минцифры России для исходящих HTTPS-запросов к MAX Bot API (`platform-api2.max.ru`) и YandexGPT.
-- [x] Зарегистрирован Webhook URL через MAX Bot API (`https://158-160-237-183.sslip.io/webhooks/max`) и добавлен скрипт управления подписками `deploy/scripts/manage-webhook.sh`.
-- [x] Статический IP `158.160.237.183` зарезервирован с deletion protection в Yandex Cloud (`quiet-chat-public-ip-active`), удалён неиспользуемый `158.160.235.153`.
+- [x] Зарегистрирован Webhook URL через MAX Bot API (`https://158-160-226-198.sslip.io/webhooks/max`) и добавлен скрипт управления подписками `deploy/scripts/manage-webhook.sh`.
+- [x] Статический IP `158.160.226.198` зарезервирован с deletion protection в Yandex Cloud (`quiet-chat-public-ip-active`), удалён неиспользуемый `158.160.235.153`.
 - [x] Исправлен тестовый запуск в `apps/web` (`--configLoader runner`), подтверждено прохождение всех 40 тестов монорепозитория через `pnpm test`.
 
 ## Принятые решения
@@ -192,9 +192,9 @@
 
 - Локальный `.env` не создан; секреты безопасно хранятся в Yandex Lockbox и материализуются на VM.
 - Тестовый домовой чат настроен: `MAX_HOME_CHAT_ID=-79181109403700`.
-- Webhook зарегистрирован в MAX Bot API и активен на `https://158-160-237-183.sslip.io/webhooks/max`.
+- Webhook зарегистрирован в MAX Bot API и активен на `https://158-160-226-198.sslip.io/webhooks/max`.
 - Реальный вызов YandexGPT успешно верифицирован (синхронный completion со структурированной схемой).
-- Зарезервирован статический IP `158.160.237.183` (`quiet-chat-public-ip-active`) с защитой от удаления.
+- Зарезервирован статический IP `158.160.226.198` (`quiet-chat-public-ip-active`) с защитой от удаления.
 - Старый неиспользуемый статический адрес `81.26.184.200` (`quiet-chat-public-ip`) сохранён в каталоге, но отвязан.
 
 ## Незакоммиченные изменения

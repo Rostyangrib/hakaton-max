@@ -13,9 +13,10 @@ fi
 
 if [ "${SKIP_GIT_UPDATE:-0}" != "1" ]; then
   if git diff-index --quiet HEAD --; then
-    git fetch origin feature/quiet-chat-mvp
-    git checkout feature/quiet-chat-mvp
-    git pull --ff-only origin feature/quiet-chat-mvp
+    target_branch="${QUIET_CHAT_BRANCH:-dev-chat-max}"
+    git fetch origin "$target_branch"
+    git checkout "$target_branch"
+    git pull --ff-only origin "$target_branch"
   else
     echo "Working tree has local changes, skipping git pull"
   fi

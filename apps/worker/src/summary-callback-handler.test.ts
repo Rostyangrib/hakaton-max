@@ -83,7 +83,7 @@ describe('SummaryCallbackHandler', () => {
         calls.push(`sendMessageToUser:${userId}:${text}`);
         return { body: { mid: 'mid-status-999' } };
       }),
-      editMessage: vi.fn().mockImplementation(async (mid, extra) => {
+      editMessage: vi.fn().mockImplementation(async (mid, _extra) => {
         calls.push(`editMessage:${mid}`);
         return { success: true };
       }),

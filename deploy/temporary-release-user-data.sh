@@ -26,13 +26,13 @@ trap 'on_error $LINENO' ERR
 report "QC_RELEASE_V1_BEGIN $(date -u +%FT%TZ)"
 cd /opt/quiet-chat
 
-git fetch origin feature/quiet-chat-mvp
-git checkout feature/quiet-chat-mvp
-git pull --ff-only origin feature/quiet-chat-mvp
+target_branch="${QUIET_CHAT_BRANCH:-dev-chat-max}"
+git fetch origin "$target_branch"
+git checkout "$target_branch"
+git pull --ff-only origin "$target_branch"
 
 deployed_commit="$(git rev-parse HEAD)"
 report "QC_DEPLOYED_COMMIT=$deployed_commit"
-test "$deployed_commit" = "5dd8961ea53d3a2777babf86278ffeb2866a9666"
 
 /bin/sh /opt/quiet-chat/deploy/scripts/materialize-lockbox-env.sh e6qg6df242g18nd4e5mv
 /bin/sh /opt/quiet-chat/deploy/deploy.sh

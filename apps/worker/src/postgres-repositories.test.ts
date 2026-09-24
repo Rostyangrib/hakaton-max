@@ -21,7 +21,7 @@ describe('Postgres repositories', () => {
     const fakeDb = {
       db: { select: mockSelect },
       pool: { query: vi.fn(), connect: vi.fn() },
-    } as any;
+    } as unknown as ConstructorParameters<typeof PostgresMessageRepository>[0];
 
     const repo = new PostgresMessageRepository(fakeDb, 'Asia/Irkutsk');
     const profiles = await repo.findAlertProfiles('home-uuid', 215608884n);
@@ -61,7 +61,7 @@ describe('Postgres repositories', () => {
     const fakeDb = {
       db: {},
       pool: { query: mockQuery },
-    } as any;
+    } as unknown as ConstructorParameters<typeof PostgresSummaryRepository>[0];
 
     const repo = new PostgresSummaryRepository(fakeDb);
     const cached = await repo.findCached('home-uuid', 215608884n, 'today', new Date('2026-09-23T09:50:00.000Z'));
@@ -78,7 +78,7 @@ describe('Postgres repositories', () => {
     const fakeDb = {
       db: {},
       pool: { query: mockQuery },
-    } as any;
+    } as unknown as ConstructorParameters<typeof PostgresSummaryRepository>[0];
 
     const repo = new PostgresSummaryRepository(fakeDb);
     const cached = await repo.findCached('home-uuid', 215608884n, 'today', new Date('2026-09-23T09:50:00.000Z'));

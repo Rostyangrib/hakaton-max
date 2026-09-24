@@ -20,7 +20,7 @@ const app = await buildApp({
         if (!bot) return false;
         try {
           const response = await bot.api.getChatMembers(maxChatId, { user_ids: [maxUserId] });
-          return response.members.some((member: any) => (member.user_id ?? member.id) === maxUserId);
+          return response.members.some((member: { user_id?: number; id?: number }) => (member.user_id ?? member.id) === maxUserId);
         } catch {
           return false;
         }

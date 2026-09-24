@@ -25,14 +25,18 @@ const emptyForm: FormState = {
 let activeSessionToken: string | null = null;
 try {
   activeSessionToken = sessionStorage.getItem('quietchat_token');
-} catch {}
+} catch {
+  // ignore storage read error
+}
 
 function setSessionToken(token: string | undefined) {
   if (!token) return;
   activeSessionToken = token;
   try {
     sessionStorage.setItem('quietchat_token', token);
-  } catch {}
+  } catch {
+    // ignore storage write error
+  }
 }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -135,7 +139,9 @@ export function App() {
         activeSessionToken = null;
         try {
           sessionStorage.removeItem('quietchat_token');
-        } catch {}
+        } catch {
+          // ignore storage remove error
+        }
         setPhase('error');
         setMessage(error instanceof Error ? error.message : 'Не удалось открыть профиль');
       }
