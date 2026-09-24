@@ -53,9 +53,22 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     credentials: 'include',
     headers,
   });
-  const payload = (await response.json()) as ApiEnvelope<T>;
-  if (!response.ok || payload.error) throw new Error(payload.error?.message ?? 'Не удалось выполнить запрос');
-  return payload.data as T;
+  const payload = (await response.json().catch(() => null)) as ApiEnvelope<T> | { message?: string; error?: unknown } | null;
+  if (!response.ok || (payload && 'error' in payload && payload.error)) {
+    const errorMsg =
+      (payload && 'error' in payload && typeof payload.error === 'object' && payload.error && 'message' in payload.error
+        ? String((payload.error as { message: unknown }).message)
+        : null) ||
+      (payload && 'message' in payload && typeof payload.message === 'string'
+        ? payload.message
+        : null) ||
+      (payload && 'error' in payload && typeof payload.error === 'string'
+        ? payload.error
+        : null) ||
+      `Ошибка сервера (${response.status})`;
+    throw new Error(errorMsg);
+  }
+  return (payload as ApiEnvelope<T>).data as T;
 }
 
 function fromProfile(profile: ResidentProfile | null): FormState {

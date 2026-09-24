@@ -260,7 +260,13 @@ async function poll(): Promise<void> {
         await markDone(event.id);
       } catch (error) {
         await markFailed(event, error);
-        console.error(JSON.stringify({ level: 'error', service: 'worker', message: 'MAX event failed', eventId: event.id }));
+        console.error(JSON.stringify({
+          level: 'error',
+          service: 'worker',
+          message: 'MAX event failed',
+          eventId: event.id,
+          error: error instanceof Error ? error.message : String(error),
+        }));
       }
     }
   } catch {
