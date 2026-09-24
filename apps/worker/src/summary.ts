@@ -113,8 +113,10 @@ function renderCategory(title: string, items: SummaryItem[]): string[] {
 
 export function renderSummary(result: SummaryResult): string {
   const periodLabels: Record<SummaryPeriod, string> = { today: 'сегодня', week: 'последние 7 дней', month: 'последние 30 дней' };
+  const header = `**Сводка за ${periodLabels[result.period]}**`;
+
   return [
-    `**Сводка за ${periodLabels[result.period]}**`, '',
+    header, '',
     ...renderCategory('🔴 **ЖКХ и аварии**', result.housing), '',
     ...renderCategory('🟡 **Двор и транспорт**', result.yard), '',
     ...renderCategory('🟢 **Соседские дела и находки**', result.community), '',

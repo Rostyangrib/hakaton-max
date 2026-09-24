@@ -11,6 +11,7 @@ import {
 export interface SummaryHome {
   id: string;
   timezone: string;
+  apartment?: number;
 }
 
 export interface SummaryRepository {
@@ -69,6 +70,12 @@ export class SummaryService {
       if (!this.model) throw new Error('YandexGPT is not configured');
       categories = await this.model.summarize(prepared);
     } catch (cause) {
+      console.warn(JSON.stringify({
+        level: 'warn',
+        service: 'worker',
+        message: 'YandexGPT failed, using fallback summary',
+        error: cause instanceof Error ? cause.message : String(cause),
+      }));
       mode = 'fallback';
       error = (cause instanceof Error ? cause.message : 'Unknown YandexGPT error').slice(0, 2_000);
       categories = createFallbackSummary(prepared);

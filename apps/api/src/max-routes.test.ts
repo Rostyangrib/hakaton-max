@@ -21,6 +21,8 @@ function services(overrides: Partial<ApiServices> = {}): ApiServices {
       getProfile: vi.fn(async () => null),
       saveProfile: vi.fn(async (_userId: bigint, _chatId: bigint, input: ResidentProfileInput, verifiedAt: Date): Promise<ResidentProfile> => ({
         ...input,
+        properties: input.properties ?? [],
+        vehicles: input.vehicles ?? [],
         floor: input.floor ?? null,
         carPlate: input.carPlate ?? null,
         carDescription: input.carDescription ?? null,
@@ -98,6 +100,31 @@ describe('profile routes', () => {
     });
     expect(savedWithBearer.statusCode).toBe(200);
     expect(savedWithBearer.json().data.apartment).toBe(54);
+  });
+
+  it('saves multiple vehicles for a resident profile', async () => {
+    const profileServices = services();
+    const app = await buildApp({ config: config(), databaseCheck: async () => {}, services: profileServices });
+    apps.push(app);
+    const cookie = `quietchat_session=${createSession(10n, 'session-secret-with-enough-entropy', 3_600)}`;
+    const payload = {
+      apartment: 54,
+      entrance: 3,
+      floor: 8,
+      vehicles: [
+        { plate: 'А123ВС77', description: 'Белая Camry' },
+        { plate: 'В456ОР77', description: 'Черный Haval' },
+      ],
+      alertsEnabled: true,
+    };
+
+    const saved = await app.inject({ method: 'PUT', url: '/api/profile', headers: { cookie }, payload });
+    expect(saved.statusCode).toBe(200);
+    const data = saved.json().data;
+    expect(data.apartment).toBe(54);
+    expect(data.vehicles).toHaveLength(2);
+    expect(data.vehicles[0].plate).toBe('А123ВС77');
+    expect(data.vehicles[1].description).toBe('Черный Haval');
   });
 });
 

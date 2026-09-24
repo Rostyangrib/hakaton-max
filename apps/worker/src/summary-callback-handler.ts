@@ -91,7 +91,8 @@ export class SummaryCallbackHandler {
     if (!user || isGroupChat || typeof callbackId !== 'string' || typeof payload !== 'string') {
       return false;
     }
-    const period = summaryPeriodSchema.safeParse(payload.startsWith('summary:') ? payload.slice(8) : '');
+    const rawPayload = payload.startsWith('summary:') ? payload.slice(8) : '';
+    const period = summaryPeriodSchema.safeParse(rawPayload);
     if (!period.success) return false;
 
     // Инкрементируем порядковый номер запроса пользователя для защиты от гонок и повторных кликов

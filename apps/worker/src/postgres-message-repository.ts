@@ -123,6 +123,8 @@ export class PostgresMessageRepository implements MessageRepository {
         entrance: residentProfiles.entrance,
         carPlateNormalized: residentProfiles.carPlateNormalized,
         carDescription: residentProfiles.carDescription,
+        properties: residentProfiles.properties,
+        vehicles: residentProfiles.vehicles,
       })
       .from(residentProfiles)
       .where(and(

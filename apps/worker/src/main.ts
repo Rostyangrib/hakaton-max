@@ -34,6 +34,13 @@ const summaryModel = config.YANDEX_CLOUD_API_KEY && config.YANDEX_CLOUD_FOLDER_I
       timeoutMs: config.YANDEXGPT_TIMEOUT_MS,
     })
   : null;
+if (!summaryModel) {
+  console.warn(JSON.stringify({
+    level: 'warn',
+    service: 'worker',
+    message: 'YandexGPT is not configured (missing YANDEX_CLOUD_API_KEY or YANDEX_CLOUD_FOLDER_ID); summaries will run in fallback mode',
+  }));
+}
 const summaryService = bot && Number.isSafeInteger(configuredHomeChatId)
   ? new SummaryService(
       new PostgresSummaryRepository(database),

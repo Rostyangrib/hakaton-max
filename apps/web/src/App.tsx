@@ -4,12 +4,16 @@ import type { ApiEnvelope, ResidentProfile } from '@quiet-chat/shared';
 
 const apiBaseUrl = import.meta.env.VITE_API_URL ?? '';
 
+type VehicleState = {
+  plate: string;
+  description: string;
+};
+
 type FormState = {
   apartment: string;
   entrance: string;
   floor: string;
-  carPlate: string;
-  carDescription: string;
+  vehicles: VehicleState[];
   alertsEnabled: boolean;
 };
 
@@ -17,8 +21,7 @@ const emptyForm: FormState = {
   apartment: '',
   entrance: '',
   floor: '',
-  carPlate: '',
-  carDescription: '',
+  vehicles: [{ plate: '', description: '' }],
   alertsEnabled: true,
 };
 
@@ -57,12 +60,25 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
 function fromProfile(profile: ResidentProfile | null): FormState {
   if (!profile) return emptyForm;
+
+  const vehicles: VehicleState[] =
+    profile.vehicles && profile.vehicles.length > 0
+      ? profile.vehicles.map((v) => ({
+          plate: v.plate ?? '',
+          description: v.description ?? '',
+        }))
+      : [
+          {
+            plate: profile.carPlate ?? '',
+            description: profile.carDescription ?? '',
+          },
+        ];
+
   return {
     apartment: String(profile.apartment),
     entrance: String(profile.entrance),
     floor: profile.floor === null || profile.floor === undefined ? '' : String(profile.floor),
-    carPlate: profile.carPlate ?? '',
-    carDescription: profile.carDescription ?? '',
+    vehicles,
     alertsEnabled: profile.alertsEnabled,
   };
 }
@@ -98,8 +114,7 @@ export function App() {
         apartment: '54',
         entrance: '3',
         floor: '8',
-        carPlate: 'A123BC77',
-        carDescription: 'Белая Toyota Camry',
+        vehicles: [{ plate: 'A123BC77', description: 'Белая Toyota Camry' }],
         alertsEnabled: true,
       });
       setPhase('ready');
@@ -148,8 +163,33 @@ export function App() {
     })();
   }, []);
 
-  function change<K extends keyof FormState>(key: K, value: FormState[K]) {
-    setForm((current) => ({ ...current, [key]: value }));
+  function change(key: 'apartment' | 'entrance' | 'floor', val: string) {
+    setForm((current) => ({ ...current, [key]: val }));
+  }
+
+  function updateVehicle(index: number, key: keyof VehicleState, val: string) {
+    setForm((current) => {
+      const next = [...current.vehicles];
+      next[index] = { ...next[index]!, [key]: val };
+      return { ...current, vehicles: next };
+    });
+  }
+
+  function addVehicle() {
+    setForm((current) => ({
+      ...current,
+      vehicles: [...current.vehicles, { plate: '', description: '' }],
+    }));
+  }
+
+  function removeVehicle(index: number) {
+    setForm((current) => ({
+      ...current,
+      vehicles:
+        current.vehicles.length > 1
+          ? current.vehicles.filter((_, i) => i !== index)
+          : [{ plate: '', description: '' }],
+    }));
   }
 
   async function save(event: FormEvent) {
@@ -157,14 +197,22 @@ export function App() {
     setPhase('saving');
     setMessage('Сохраняем…');
     try {
+      const validVehicles = form.vehicles.filter((v) => v.plate.trim() || v.description.trim());
+      const primaryPlate = validVehicles.find((v) => v.plate.trim())?.plate.trim() || null;
+      const primaryDesc = validVehicles.find((v) => v.description.trim())?.description.trim() || null;
+
       const profile = await api<ResidentProfile>('/api/profile', {
         method: 'PUT',
         body: JSON.stringify({
-          apartment: Number(form.apartment),
-          entrance: Number(form.entrance),
+          apartment: Number(form.apartment || 1),
+          entrance: Number(form.entrance || 1),
           floor: form.floor ? Number(form.floor) : null,
-          carPlate: form.carPlate || null,
-          carDescription: form.carDescription || null,
+          carPlate: primaryPlate,
+          carDescription: primaryDesc,
+          vehicles: validVehicles.map((v) => ({
+            plate: v.plate.trim() || null,
+            description: v.description.trim() || null,
+          })),
           alertsEnabled: form.alertsEnabled,
         }),
       });
@@ -342,45 +390,70 @@ export function App() {
 
         <div className="divider" />
 
-        {/* Section 02 - Автомобиль */}
+        {/* Section 02 - Автомобили */}
         <section aria-labelledby="section-02-title">
           <div className="section-header">
             <span className="section-number section-number--inactive">02</span>
             <div className="section-separator" aria-hidden="true" />
             <div className="section-title-wrap">
               <h2 id="section-02-title" className="section-title">
-                Автомобиль
+                Автомобили
               </h2>
               <span className="section-subtitle">Можно пропустить</span>
             </div>
           </div>
 
-          <label className="field">
-            <span className="field-label">Госномер</span>
-            <input
-              maxLength={32}
-              autoCapitalize="characters"
-              placeholder="A123BC77"
-              value={form.carPlate}
-              onChange={(e) => change('carPlate', e.target.value)}
-              className="text-input"
-            />
-          </label>
+          {form.vehicles.map((veh, index) => (
+            <div key={index} className="multi-item-card">
+              {form.vehicles.length > 1 && (
+                <div className="sub-item-header">
+                  <span className="sub-item-title">Автомобиль #{index + 1}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeVehicle(index)}
+                    className="item-remove-btn"
+                    aria-label={`Удалить автомобиль ${index + 1}`}
+                  >
+                    Удалить
+                  </button>
+                </div>
+              )}
+              <label className="field">
+                <span className="field-label">Госномер</span>
+                <input
+                  maxLength={32}
+                  autoCapitalize="characters"
+                  placeholder="A123BC77"
+                  value={veh.plate}
+                  onChange={(e) => updateVehicle(index, 'plate', e.target.value)}
+                  className="text-input"
+                />
+              </label>
 
-          <label className="field">
-            <span className="field-label">Описание</span>
-            <div className="input-with-counter">
-              <textarea
-                maxLength={100}
-                rows={2}
-                placeholder="Белая Toyota Camry"
-                value={form.carDescription}
-                onChange={(e) => change('carDescription', e.target.value)}
-                className="textarea-input"
-              />
-              <span className="char-counter">{form.carDescription.length} / 100</span>
+              <label className="field">
+                <span className="field-label">Описание</span>
+                <div className="input-with-counter">
+                  <textarea
+                    maxLength={100}
+                    rows={2}
+                    placeholder="Белая Toyota Camry"
+                    value={veh.description}
+                    onChange={(e) => updateVehicle(index, 'description', e.target.value)}
+                    className="textarea-input"
+                  />
+                  <span className="char-counter">{veh.description.length} / 100</span>
+                </div>
+              </label>
             </div>
-          </label>
+          ))}
+
+          <button
+            type="button"
+            onClick={addVehicle}
+            className="add-item-btn"
+          >
+            + Добавить еще автомобиль
+          </button>
         </section>
 
         <div className="divider" />
@@ -413,7 +486,7 @@ export function App() {
             <input
               type="checkbox"
               checked={form.alertsEnabled}
-              onChange={(e) => change('alertsEnabled', e.target.checked)}
+              onChange={(e) => setForm((c) => ({ ...c, alertsEnabled: e.target.checked }))}
             />
             <span className="toggle-slider" />
           </label>

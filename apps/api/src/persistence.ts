@@ -37,12 +37,33 @@ export function createPersistence(db: Database): ProfileStore & WebhookInbox {
       .where(and(eq(residentProfiles.maxUserId, maxUserId), eq(residentProfiles.homeId, homeId)))
       .limit(1);
     if (!profile || !profile.membershipVerifiedAt) return null;
+
+    const properties = profile.properties && profile.properties.length > 0
+      ? profile.properties
+      : [{
+          apartment: profile.apartment,
+          entrance: profile.entrance,
+          floor: profile.floor,
+        }];
+
+    const vehicles = profile.vehicles && profile.vehicles.length > 0
+      ? profile.vehicles
+      : (profile.carPlateRaw || profile.carDescription
+        ? [{
+            plate: profile.carPlateRaw,
+            plateNormalized: profile.carPlateNormalized,
+            description: profile.carDescription,
+          }]
+        : []);
+
     return {
       apartment: profile.apartment,
       entrance: profile.entrance,
       floor: profile.floor,
       carPlate: profile.carPlateRaw,
       carDescription: profile.carDescription,
+      properties,
+      vehicles,
       alertsEnabled: profile.alertsEnabled,
       membershipVerifiedAt: profile.membershipVerifiedAt.toISOString(),
       updatedAt: profile.updatedAt.toISOString(),
@@ -66,15 +87,56 @@ export function createPersistence(db: Database): ProfileStore & WebhookInbox {
     },
     async saveProfile(maxUserId, maxChatId, input, verifiedAt) {
       const homeId = await ensureHome(maxChatId);
+
+      const properties = input.properties && input.properties.length > 0
+        ? input.properties.map((p) => ({
+            id: p.id,
+            title: p.title,
+            chatId: p.chatId,
+            apartment: p.apartment,
+            entrance: p.entrance,
+            floor: p.floor ?? null,
+          }))
+        : [{
+            apartment: input.apartment,
+            entrance: input.entrance,
+            floor: input.floor ?? null,
+          }];
+
+      const primaryApartment = properties[0]?.apartment ?? input.apartment;
+      const primaryEntrance = properties[0]?.entrance ?? input.entrance;
+      const primaryFloor = properties[0]?.floor ?? input.floor ?? null;
+
+      const vehicles = input.vehicles && input.vehicles.length > 0
+        ? input.vehicles.map((v) => ({
+            id: v.id,
+            plate: cleanNullable(v.plate),
+            plateNormalized: cleanNullable(v.plate) ? normalizeCarPlate(v.plate!) : null,
+            description: cleanNullable(v.description),
+          }))
+        : (cleanNullable(input.carPlate) || cleanNullable(input.carDescription)
+          ? [{
+              plate: cleanNullable(input.carPlate),
+              plateNormalized: cleanNullable(input.carPlate) ? normalizeCarPlate(input.carPlate!) : null,
+              description: cleanNullable(input.carDescription),
+            }]
+          : []);
+
+      const primaryCarPlate = vehicles.find((v) => v.plate)?.plate ?? cleanNullable(input.carPlate);
+      const primaryCarPlateNormalized = vehicles.find((v) => v.plateNormalized)?.plateNormalized ?? (primaryCarPlate ? normalizeCarPlate(primaryCarPlate) : null);
+      const primaryCarDescription = vehicles.find((v) => v.description)?.description ?? cleanNullable(input.carDescription);
+
       const values = {
         homeId,
         maxUserId,
-        apartment: input.apartment,
-        entrance: input.entrance,
-        floor: input.floor ?? null,
-        carPlateRaw: cleanNullable(input.carPlate),
-        carPlateNormalized: cleanNullable(input.carPlate) ? normalizeCarPlate(input.carPlate!) : null,
-        carDescription: cleanNullable(input.carDescription),
+        apartment: primaryApartment,
+        entrance: primaryEntrance,
+        floor: primaryFloor,
+        carPlateRaw: primaryCarPlate,
+        carPlateNormalized: primaryCarPlateNormalized,
+        carDescription: primaryCarDescription,
+        properties,
+        vehicles,
         alertsEnabled: input.alertsEnabled,
         membershipVerifiedAt: verifiedAt,
         updatedAt: new Date(),

@@ -13,7 +13,12 @@ export class PostgresSummaryRepository implements SummaryRepository {
 
   async findHomeForResident(maxChatId: bigint, maxUserId: bigint) {
     const [row] = await this.database.db
-      .select({ id: homes.id, timezone: homes.timezone })
+      .select({
+        id: homes.id,
+        timezone: homes.timezone,
+        apartment: residentProfiles.apartment,
+        properties: residentProfiles.properties,
+      })
       .from(residentProfiles)
       .innerJoin(homes, eq(residentProfiles.homeId, homes.id))
       .where(and(
@@ -23,7 +28,13 @@ export class PostgresSummaryRepository implements SummaryRepository {
         eq(homes.isActive, true),
       ))
       .limit(1);
-    return row ?? null;
+    if (!row) return null;
+
+    return {
+      id: row.id,
+      timezone: row.timezone,
+      apartment: row.apartment,
+    };
   }
 
   async findCached(homeId: string, maxUserId: bigint, period: SummaryPeriod, createdAfter: Date): Promise<SummaryResult | null> {

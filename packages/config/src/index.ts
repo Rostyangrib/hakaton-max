@@ -35,5 +35,15 @@ const environmentSchema = z.object({
 export type AppConfig = z.infer<typeof environmentSchema>;
 
 export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppConfig {
-  return environmentSchema.parse(environment);
+  const env = { ...environment };
+  if (!env.YANDEX_CLOUD_FOLDER_ID && env.YANDEX_FOLDER_ID) {
+    env.YANDEX_CLOUD_FOLDER_ID = env.YANDEX_FOLDER_ID;
+  }
+  if (!env.YANDEX_CLOUD_API_KEY) {
+    env.YANDEX_CLOUD_API_KEY = env.YANDEX_API_KEY || env.YC_API_KEY;
+  }
+  if (!env.YANDEXGPT_MODEL_URI && env.YANDEX_MODEL_URI) {
+    env.YANDEXGPT_MODEL_URI = env.YANDEX_MODEL_URI;
+  }
+  return environmentSchema.parse(env);
 }

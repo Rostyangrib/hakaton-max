@@ -155,4 +155,90 @@ describe('message pipeline', () => {
       expect.any(String),
     );
   });
+
+  it('delivers alert to resident for their secondary apartment', async () => {
+    const repo = repository();
+    repo.findAlertProfiles = vi.fn(async () => [{
+      id: 'profile-multi',
+      maxUserId: 42n,
+      apartment: 54,
+      entrance: 3,
+      carPlateNormalized: 'А123ВС77',
+      carDescription: 'Белая Toyota Camry',
+      properties: [
+        { apartment: 54, entrance: 3 },
+        { apartment: 102, entrance: 5 },
+      ],
+    }]);
+    const privateApi = { sendMessageToUser: vi.fn(async () => ({})) };
+    const pipeline = new MessagePipeline(repo, privateApi, 777, 15);
+
+    expect(await pipeline.handle(createdUpdate('Квартира 102, закройте окно, дождь заливает'))).toBe(true);
+    expect(privateApi.sendMessageToUser).toHaveBeenCalledWith(42, expect.stringContaining('квартира 102'));
+  });
+
+  it('delivers alert to resident for their secondary vehicle', async () => {
+    const repo = repository();
+    repo.findAlertProfiles = vi.fn(async () => [{
+      id: 'profile-multi-car',
+      maxUserId: 42n,
+      apartment: 54,
+      entrance: 3,
+      carPlateNormalized: 'А123ВС77',
+      carDescription: 'Белая Toyota Camry',
+      vehicles: [
+        { plateNormalized: 'А123ВС77', description: 'Белая Toyota Camry' },
+        { plateNormalized: 'В456ОР77', description: 'Черный Haval' },
+      ],
+    }]);
+    const privateApi = { sendMessageToUser: vi.fn(async () => ({})) };
+    const pipeline = new MessagePipeline(repo, privateApi, 777, 15);
+
+    expect(await pipeline.handle(createdUpdate('Черный Haval перекрыл выезд со двора'))).toBe(true);
+    expect(privateApi.sendMessageToUser).toHaveBeenCalledWith(42, expect.stringContaining('Черный Haval'));
+  });
+
+  it('delivers alert when plate in chat has no region or different case/spaces', async () => {
+    const repo = repository();
+    repo.findAlertProfiles = vi.fn(async () => [{
+      id: 'profile-plate',
+      maxUserId: 42n,
+      apartment: 54,
+      entrance: 3,
+      carPlateNormalized: 'А123ВС77',
+      carDescription: null,
+    }]);
+    const privateApi = { sendMessageToUser: vi.fn(async () => ({})) };
+    const pipeline = new MessagePipeline(repo, privateApi, 777, 15);
+
+    expect(await pipeline.handle(createdUpdate('Чья а 123 вс во дворе?'))).toBe(true);
+    expect(privateApi.sendMessageToUser).toHaveBeenCalledWith(42, expect.stringContaining('А123ВС'));
+  });
+
+  it('delivers alert when plate has rus suffix and when car brand has Russian case ending', async () => {
+    const repo = repository();
+    repo.findAlertProfiles = vi.fn(async () => [{
+      id: 'profile-multi-cars',
+      maxUserId: 42n,
+      apartment: 54,
+      entrance: 3,
+      carPlateNormalized: 'А123ВС77',
+      carDescription: 'Mazda CX-5',
+      vehicles: [
+        { plateNormalized: 'А123ВС77', description: 'Mazda CX-5' },
+      ],
+    }]);
+    const privateApi = { sendMessageToUser: vi.fn(async () => ({})) };
+    const pipeline = new MessagePipeline(repo, privateApi, 777, 15);
+
+    // Suffix rus in plate
+    expect(await pipeline.handle(createdUpdate('Чья а123вс77rus во дворе?'))).toBe(true);
+    expect(privateApi.sendMessageToUser).toHaveBeenCalledWith(42, expect.stringContaining('А123ВС77'));
+
+    privateApi.sendMessageToUser.mockClear();
+
+    // Russian case ending: Кто-то поцарапал мазду
+    expect(await pipeline.handle(createdUpdate('Кто-то поцарапал мазду во дворе'))).toBe(true);
+    expect(privateApi.sendMessageToUser).toHaveBeenCalledWith(42, expect.stringContaining('Mazda CX-5'));
+  });
 });

@@ -26,6 +26,22 @@ export interface StoredMessage extends IncomingMessage {
   homeId: string;
 }
 
+export interface AlertProperty {
+  id?: string | undefined;
+  title?: string | undefined;
+  chatId?: number | undefined;
+  apartment: number;
+  entrance: number;
+  floor?: number | null | undefined;
+}
+
+export interface AlertVehicle {
+  id?: string | undefined;
+  plate?: string | null | undefined;
+  plateNormalized?: string | null | undefined;
+  description?: string | null | undefined;
+}
+
 export interface AlertProfile {
   id: string;
   maxUserId: bigint;
@@ -33,6 +49,8 @@ export interface AlertProfile {
   entrance: number;
   carPlateNormalized: string | null;
   carDescription: string | null;
+  properties?: AlertProperty[] | null;
+  vehicles?: AlertVehicle[] | null;
 }
 
 export interface DeliveryReservation {
@@ -151,8 +169,23 @@ export class MessagePipeline {
 
     for (const profile of profiles) {
       const triggers = baseTriggers.filter((trigger) => triggerMatchesProfile(trigger, profile));
-      const descriptionTrigger = matchCarDescription(message.text, profile.carDescription);
-      if (descriptionTrigger) triggers.push(descriptionTrigger);
+
+      const allVehicles: AlertVehicle[] = profile.vehicles && profile.vehicles.length > 0
+        ? profile.vehicles
+        : (profile.carDescription || profile.carPlateNormalized
+          ? [{ plateNormalized: profile.carPlateNormalized, description: profile.carDescription }]
+          : []);
+
+      for (const vehicle of allVehicles) {
+        if (vehicle.description) {
+          const descriptionTrigger = matchCarDescription(message.text, vehicle.description);
+          if (descriptionTrigger) triggers.push(descriptionTrigger);
+        }
+      }
+      if (profile.carDescription && !allVehicles.some((v) => v.description === profile.carDescription)) {
+        const legacyTrigger = matchCarDescription(message.text, profile.carDescription);
+        if (legacyTrigger) triggers.push(legacyTrigger);
+      }
 
       const uniqueTriggers = [...new Map(triggers.map((trigger) => [`${trigger.type}:${trigger.value}`, trigger])).values()];
       for (const trigger of uniqueTriggers) {

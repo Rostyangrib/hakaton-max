@@ -24,7 +24,7 @@ export function createWelcomeKeyboard(appTarget: string, _directUrl?: string, co
   ]);
 }
 
-function createSummaryButtons() {
+export function createSummaryButtons() {
   return [
     [Keyboard.button.callback('📅 Сегодня', 'summary:today'), Keyboard.button.callback('📆 7 дней', 'summary:week')],
     [Keyboard.button.callback('🗓️ 30 дней', 'summary:month')],

@@ -526,6 +526,62 @@ input, textarea, select {
   cursor: not-allowed;
 }
 
+/* Multi-item management */
+.sub-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.sub-item-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #60768B;
+}
+
+.item-remove-btn {
+  background: none;
+  border: none;
+  color: #B23B3B;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.item-remove-btn:hover {
+  background-color: #FDECEB;
+}
+
+.add-item-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 10px;
+  border: 1.5px dashed #B1D3DC;
+  border-radius: 8px;
+  background-color: transparent;
+  color: #188DB5;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 10px;
+  transition: all 0.15s ease;
+}
+
+.add-item-btn:hover {
+  background-color: #EAF6FA;
+  border-color: #188DB5;
+}
+
+.multi-item-card {
+  margin-bottom: 14px;
+}
+
 /* Footer */
 .footer-privacy {
   display: flex;

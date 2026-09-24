@@ -8,19 +8,42 @@ export const healthResponseSchema = z.object({
 
 export type HealthResponse = z.infer<typeof healthResponseSchema>;
 
+export const vehicleItemSchema = z.object({
+  id: z.string().optional(),
+  plate: z.string().trim().max(32).nullable().optional(),
+  plateNormalized: z.string().trim().max(16).nullable().optional(),
+  description: z.string().trim().max(100).nullable().optional(),
+});
+
+export const propertyItemSchema = z.object({
+  id: z.string().optional(),
+  title: z.string().trim().max(100).optional(),
+  chatId: z.coerce.number().int().optional(),
+  apartment: z.coerce.number().int().min(1).max(9_999),
+  entrance: z.coerce.number().int().min(1).max(999),
+  floor: z.coerce.number().int().min(-9).max(999).nullable().optional(),
+});
+
 export const residentProfileInputSchema = z.object({
   apartment: z.coerce.number().int().min(1).max(9_999),
   entrance: z.coerce.number().int().min(1).max(999),
   floor: z.coerce.number().int().min(-9).max(999).nullable().optional(),
   carPlate: z.string().trim().max(32).nullable().optional(),
   carDescription: z.string().trim().max(100).nullable().optional(),
+  properties: z.array(propertyItemSchema).optional(),
+  vehicles: z.array(vehicleItemSchema).optional(),
   alertsEnabled: z.boolean().default(true),
 });
 
 export const residentProfileSchema = residentProfileInputSchema.extend({
+  properties: z.array(propertyItemSchema).default([]),
+  vehicles: z.array(vehicleItemSchema).default([]),
   membershipVerifiedAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
+
+export type VehicleItem = z.infer<typeof vehicleItemSchema>;
+export type PropertyItem = z.infer<typeof propertyItemSchema>;
 
 const userIdField = z.union([
   z.number().int().positive(),
@@ -71,10 +94,10 @@ export const summaryItemSchema = z.object({
 });
 
 export const summaryCategoriesSchema = z.object({
-  housing: z.array(summaryItemSchema).max(10),
-  yard: z.array(summaryItemSchema).max(10),
-  community: z.array(summaryItemSchema).max(10),
-}).strict();
+  housing: z.array(summaryItemSchema).max(10).default([]),
+  yard: z.array(summaryItemSchema).max(10).default([]),
+  community: z.array(summaryItemSchema).max(10).default([]),
+});
 
 export const summaryResultSchema = summaryCategoriesSchema.extend({
   period: summaryPeriodSchema,
@@ -86,6 +109,8 @@ export const summaryResultSchema = summaryCategoriesSchema.extend({
   generatedAt: z.string().datetime(),
   mode: z.enum(['yandexgpt', 'fallback']),
   cached: z.boolean(),
+  apartmentFilter: z.number().int().positive().optional(),
+  residentApartments: z.array(z.number().int().positive()).optional(),
 }).strict();
 
 export type SummaryPeriod = z.infer<typeof summaryPeriodSchema>;
@@ -104,7 +129,25 @@ const visuallyEquivalentPlateLetters: Record<string, string> = {
 };
 
 export function normalizeCarPlate(value: string): string | null {
-  const compact = value.normalize('NFKC').toUpperCase().replace(/[\s-]+/g, '');
+  const compact = value
+    .normalize('NFKC')
+    .toUpperCase()
+    .replace(/[\s\-_/|]+/g, '')
+    .replace(/(?:RUS|РУС)$/u, '');
   const converted = [...compact].map((letter) => visuallyEquivalentPlateLetters[letter] ?? letter).join('');
-  return /^[АВЕКМНОРСТУХ]\d{3}[АВЕКМНОРСТУХ]{2}\d{2,3}$/u.test(converted) ? converted : null;
+  return /^[АВЕКМНОРСТУХ]\d{3}[АВЕКМНОРСТУХ]{2}(?:\d{2,3})?$/u.test(converted) ? converted : null;
+}
+
+export function matchPlates(plateA: string, plateB: string): boolean {
+  const normA = normalizeCarPlate(plateA);
+  const normB = normalizeCarPlate(plateB);
+  if (!normA || !normB) return false;
+  if (normA === normB) return true;
+  const baseA = normA.slice(0, 6);
+  const baseB = normB.slice(0, 6);
+  if (baseA !== baseB) return false;
+  const regA = normA.slice(6);
+  const regB = normB.slice(6);
+  if (!regA || !regB) return true;
+  return regA === regB;
 }
