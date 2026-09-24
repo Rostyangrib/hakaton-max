@@ -99,7 +99,9 @@ export function createFallbackSummary(messages: SummarySourceMessage[]): Summary
 export function assertValidSources(categories: SummaryCategories, allowedIds: Set<string>): SummaryCategories {
   const allowedList = [...allowedIds];
   const validate = (items: SummaryItem[]) => items.map((item) => {
-    const resolved = item.sourceMessageIds.map((id) => {
+    const resolved = item.sourceMessageIds.map((rawId) => {
+      const id = String(rawId).replace(/^[\[#\s]+|[\]\s]+$/g, '').trim();
+      if (!id) return null;
       if (allowedIds.has(id)) return id;
       const prefix = allowedList.find((allowed) => allowed.startsWith(id) || id.startsWith(allowed));
       if (prefix) return prefix;
