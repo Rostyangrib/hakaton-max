@@ -30,6 +30,7 @@ function repository(reservation = true) {
   };
   return {
     ensureHome: vi.fn(async (_chatId: bigint) => 'home-uuid'),
+    getHomeTitle: vi.fn(async (_homeId: string) => null as string | null),
     upsertCreated: vi.fn(async (home, message) => ({ ...stored, ...message, homeId: home })),
     updateEdited: vi.fn(async (home, message) => ({ ...stored, ...message, homeId: home })),
     markDeleted: vi.fn(async () => true),
@@ -245,21 +246,26 @@ describe('message pipeline', () => {
   it('routes messages from multiple distinct group chats to their respective homes when homeChatId is null', async () => {
     const repo = repository();
     repo.ensureHome = vi.fn(async (chatId: bigint) => `home-uuid-${chatId}`);
+    repo.getHomeTitle = vi.fn(async (homeId: string) => (homeId === 'home-uuid-1001' ? 'Дом 1' : 'Дом 2'));
     const privateApi = { sendMessageToUser: vi.fn(async () => ({})) };
     // homeChatId is null -> multichat mode
-    const multichatPipeline = new MessagePipeline(repo, privateApi, null, 15);
+    const multichatPipeline = new MessagePipeline(repo, privateApi, null, 0);
 
     // Message from chat 1001
     expect(await multichatPipeline.handle(createdUpdate('Хозяин кв. 54', 1001))).toBe(true);
     expect(repo.ensureHome).toHaveBeenCalledWith(1001n);
     expect(repo.upsertCreated).toHaveBeenCalledWith('home-uuid-1001', expect.anything(), expect.anything(), expect.anything());
     expect(repo.findAlertProfiles).toHaveBeenCalledWith('home-uuid-1001', 10n);
+    expect(privateApi.sendMessageToUser).toHaveBeenCalledWith(42, expect.stringContaining('🔔 В домовом чате «Дом 1» упомянули: квартира 54.'));
+
+    privateApi.sendMessageToUser.mockClear();
 
     // Message from chat 2002
     expect(await multichatPipeline.handle(createdUpdate('Хозяин кв. 54', 2002))).toBe(true);
     expect(repo.ensureHome).toHaveBeenCalledWith(2002n);
     expect(repo.upsertCreated).toHaveBeenCalledWith('home-uuid-2002', expect.anything(), expect.anything(), expect.anything());
     expect(repo.findAlertProfiles).toHaveBeenCalledWith('home-uuid-2002', 10n);
+    expect(privateApi.sendMessageToUser).toHaveBeenCalledWith(42, expect.stringContaining('🔔 В домовом чате «Дом 2» упомянули: квартира 54.'));
   });
 
   it('suppresses alert delivery and revokes membership when membershipChecker reports resident has left the chat', async () => {

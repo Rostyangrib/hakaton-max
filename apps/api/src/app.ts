@@ -249,13 +249,37 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
       });
     }
 
+    const requestedChatId = typeof (request.query as { chatId?: string })?.chatId === 'string'
+      ? (request.query as { chatId?: string }).chatId
+      : undefined;
+
+    let finalProfile = profile;
+    let finalIsMember = isMember;
+    let finalTitle = homeChatTitle;
+    let finalUrl: string | null = homeChatUrl;
+
+    if (!requestedChatId && !isMember) {
+      const memberHome = availableHomes.find((h) => h.isMember);
+      if (memberHome) {
+        const memberChatId = BigInt(memberHome.chatId);
+        const memberProfile = await dependencies.services!.profiles.getProfile(context.maxUserId, memberChatId);
+        if (memberProfile && !memberProfile.membershipVerifiedAt && dependencies.services!.profiles.verifyMembership) {
+          await dependencies.services!.profiles.verifyMembership(context.maxUserId, memberChatId);
+        }
+        finalProfile = memberProfile;
+        finalIsMember = true;
+        finalTitle = memberHome.title;
+        finalUrl = memberHome.chatUrl ?? null;
+      }
+    }
+
     return reply.code(200).send(envelope(request.id, {
-      profile: profile ?? null,
-      isMember,
-      homeChatTitle,
-      homeChatUrl,
+      profile: finalProfile ?? null,
+      isMember: finalIsMember,
+      homeChatTitle: finalTitle,
+      homeChatUrl: finalUrl,
       availableHomes,
-      ...(profile ? profile : {}),
+      ...(finalProfile ? finalProfile : {}),
     }));
   });
 

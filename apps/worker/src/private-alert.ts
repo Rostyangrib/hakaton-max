@@ -4,11 +4,19 @@ export interface PrivateMessageApi {
   sendMessageToUser(userId: number, text: string): Promise<unknown>;
 }
 
-export function createAlertText(trigger: MessageTrigger, senderName: string, messageText: string): string {
+export function createAlertText(
+  trigger: MessageTrigger,
+  senderName: string,
+  messageText: string,
+  homeTitle?: string,
+): string {
   const compactText = messageText.trim().replace(/\s+/g, ' ');
   const excerpt = compactText.length > 240 ? `${compactText.slice(0, 237)}…` : compactText;
+  const header = homeTitle
+    ? `🔔 В домовом чате «${homeTitle}» упомянули: ${trigger.label}.`
+    : `🔔 В домовом чате упомянули: ${trigger.label}.`;
   return [
-    `🔔 В домовом чате упомянули: ${trigger.label}.`,
+    header,
     '',
     `«${excerpt}»`,
     `Автор: ${senderName}`,
@@ -21,6 +29,7 @@ export async function sendPrivateAlert(
   trigger: MessageTrigger,
   senderName: string,
   messageText: string,
+  homeTitle?: string,
 ): Promise<void> {
-  await api.sendMessageToUser(userId, createAlertText(trigger, senderName, messageText));
+  await api.sendMessageToUser(userId, createAlertText(trigger, senderName, messageText, homeTitle));
 }

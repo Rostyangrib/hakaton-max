@@ -135,8 +135,19 @@ export function App() {
     if (res?.availableHomes && res.availableHomes.length > 0) {
       setAvailableHomes(res.availableHomes);
     }
+    const memberHomes = (res?.availableHomes || []).filter((h) => h.isMember === true);
     if (targetChatId) {
       setChatId(targetChatId);
+    } else if (memberHomes.length > 0) {
+      const isCurrentInMembers = memberHomes.some((h) => h.chatId === chatId);
+      if (!isCurrentInMembers) {
+        const firstMemberChatId = memberHomes[0]!.chatId;
+        setChatId(firstMemberChatId);
+        if (!memberStatus) {
+          void loadProfile(firstMemberChatId, false);
+          return;
+        }
+      }
     } else if (res?.availableHomes && res.availableHomes.length > 0 && !chatId) {
       const firstChatId = res.availableHomes[0]?.chatId;
       if (firstChatId) setChatId(firstChatId);
@@ -241,12 +252,12 @@ export function App() {
     if (isDemo) {
       setIsDemoMode(true);
       setDisplayName('Ростислав Затопляев');
+      const demoNotMember = urlParams.get('not_member') === '1' || hashParams.get('not_member') === '1';
       setAvailableHomes([
-        { chatId: '-79181109403700', title: 'Тестовый дом', isMember: true },
-        { chatId: '-79396775944382', title: 'Тест 2', isMember: true },
+        { chatId: '-79181109403700', title: 'Тестовый дом', isMember: !demoNotMember },
+        { chatId: '-79396775944382', title: 'Тест 2', isMember: !demoNotMember },
       ]);
       setChatId(resolvedChatId || '-79181109403700');
-      const demoNotMember = urlParams.get('not_member') === '1' || hashParams.get('not_member') === '1';
       setIsMember(!demoNotMember);
       if (demoNotMember) {
         setForm(createEmptyForm());
@@ -384,8 +395,10 @@ export function App() {
     }
   }
 
+  const memberHomes = availableHomes.filter((home) => home.isMember === true);
   const isStandaloneBrowser = phase === 'error' && !displayName;
-  const disabled = phase === 'loading' || phase === 'saving' || isStandaloneBrowser;
+  const isNotMemberAnywhere = phase === 'ready' && (isMember === false || memberHomes.length === 0);
+  const disabled = phase === 'loading' || phase === 'saving' || isStandaloneBrowser || isNotMemberAnywhere;
 
   return (
     <main className="page">
@@ -492,14 +505,20 @@ export function App() {
 
       <form className="form" onSubmit={(event) => void save(event)}>
         {/* Warning if not a member */}
-        {isMember === false && (
+        {(isMember === false || memberHomes.length === 0) && (
           <aside className="membership-warning" role="alert" aria-label="Предупреждение о членстве в чате">
             <div className="membership-warning__header">
               <div className="membership-warning__icon" aria-hidden="true">!</div>
-              <div className="membership-warning__title">Вы ещё не вступили в домовой чат</div>
+              <div className="membership-warning__title">
+                {memberHomes.length === 0
+                  ? 'Вы пока не состоите ни в одном домовом чате'
+                  : 'Вы ещё не вступили в домовой чат'}
+              </div>
             </div>
             <p className="membership-warning__text">
-              Чтобы QuietChat мог присылать вам персональные уведомления и сводки по дому «{homeChatTitle}», необходимо вступить в домовой чат.
+              {memberHomes.length === 0
+                ? 'Чтобы сервис «Тихий Чат» мог присылать вам персональные уведомления и сводки, вступите в домовой чат вашего дома.'
+                : `Чтобы сервис «Тихий Чат» мог присылать вам персональные уведомления и сводки по дому «${homeChatTitle}», необходимо вступить в домовой чат.`}
             </p>
             <div className="membership-warning__actions">
               {homeChatUrl && (
@@ -518,7 +537,7 @@ export function App() {
                 onClick={() => void checkMembership(true)}
                 disabled={checkingMembership}
               >
-                {checkingMembership ? 'Проверяем…' : '🔄 Проверить статус'}
+                {checkingMembership ? 'Проверяем…' : 'Проверить статус'}
               </button>
             </div>
           </aside>
@@ -537,14 +556,14 @@ export function App() {
             </div>
           </div>
 
-          {availableHomes.length > 1 && (
+          {memberHomes.length > 1 && (
             <div className="home-selector" role="region" aria-label="Выбор дома">
               <div className="home-selector__header">
                 <span className="home-selector__label">Домовой чат</span>
                 <span className="home-selector__hint">Выберите дом для настройки адреса</span>
               </div>
               <div className="home-tabs" role="tablist">
-                {availableHomes.map((home) => {
+                {memberHomes.map((home) => {
                   const isCurrent = home.chatId === chatId || (!chatId && home.title === homeChatTitle);
                   return (
                     <button
@@ -555,11 +574,7 @@ export function App() {
                       className={`home-tab ${isCurrent ? 'home-tab--active' : ''}`}
                       onClick={() => void selectHome(home.chatId)}
                     >
-                      <span className="home-tab__icon" aria-hidden="true">🏠</span>
                       <span className="home-tab__title">{home.title}</span>
-                      {home.isMember === false && (
-                        <span className="home-tab__badge">Не в чате</span>
-                      )}
                     </button>
                   );
                 })}
@@ -789,12 +804,18 @@ export function App() {
         <button
           type="submit"
           className="submit-button"
-          disabled={disabled || isMember === false}
-          title={isMember === false ? `Сначала вступите в домовой чат «${homeChatTitle}»` : undefined}
+          disabled={disabled || isMember === false || memberHomes.length === 0}
+          title={
+            memberHomes.length === 0
+              ? 'Сначала вступите в домовой чат'
+              : isMember === false
+                ? `Сначала вступите в домовой чат «${homeChatTitle}»`
+                : undefined
+          }
         >
           {phase === 'saving'
             ? 'Сохранение…'
-            : isMember === false
+            : isMember === false || memberHomes.length === 0
               ? 'Сначала вступите в домовой чат'
               : 'Сохранить изменения'}
         </button>
@@ -815,7 +836,7 @@ export function App() {
             <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
             <path d="M7 11V7a5 5 0 0 1 10 0v4" />
           </svg>
-          <span>Данные видит только бот QuietChat</span>
+          <span>Данные видит только бот «Тихий Чат»</span>
         </div>
       </form>
     </main>

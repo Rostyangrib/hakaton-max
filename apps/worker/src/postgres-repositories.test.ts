@@ -85,4 +85,55 @@ describe('Postgres repositories', () => {
 
     expect(cached).toBeNull();
   });
+
+  it('getHomeTitle retrieves title for a home', async () => {
+    const mockWhere = vi.fn().mockReturnValue({
+      limit: vi.fn().mockResolvedValue([{ title: 'ЖК Солнечный' }]),
+    });
+    const mockFrom = vi.fn().mockReturnValue({ where: mockWhere });
+    const mockSelect = vi.fn().mockReturnValue({ from: mockFrom });
+
+    const fakeDb = {
+      db: { select: mockSelect },
+      pool: { query: vi.fn(), connect: vi.fn() },
+    } as unknown as ConstructorParameters<typeof PostgresMessageRepository>[0];
+
+    const repo = new PostgresMessageRepository(fakeDb, 'Asia/Irkutsk');
+    const title = await repo.getHomeTitle('home-uuid-1');
+    expect(title).toBe('ЖК Солнечный');
+  });
+
+  it('reserveDelivery skips antiflood query when antifloodMinutes is 0', async () => {
+    const executedQueries: string[] = [];
+    const fakeClient = {
+      query: vi.fn(async (query: string) => {
+        executedQueries.push(query);
+        if (query.includes('select id, status from alert_deliveries')) {
+          return { rows: [] };
+        }
+        if (query.includes('insert into alert_deliveries')) {
+          return { rows: [{ id: 'deliv-1' }] };
+        }
+        return { rows: [] };
+      }),
+      release: vi.fn(),
+    };
+    const fakeDb = {
+      db: {},
+      pool: { connect: vi.fn(async () => fakeClient) },
+    } as unknown as ConstructorParameters<typeof PostgresMessageRepository>[0];
+
+    const repo = new PostgresMessageRepository(fakeDb, 'Asia/Irkutsk');
+    const res = await repo.reserveDelivery({
+      profileId: 'p-1',
+      messageId: 'm-1',
+      senderUserId: 10n,
+      trigger: { type: 'apartment', value: '54' },
+      antifloodMinutes: 0,
+    });
+
+    expect(res).toEqual({ id: 'deliv-1' });
+    // Verify antiflood interval query was NOT executed
+    expect(executedQueries.some((q) => q.includes('interval'))).toBe(false);
+  });
 });

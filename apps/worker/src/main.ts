@@ -297,7 +297,7 @@ async function processUpdate(payload: unknown): Promise<void> {
           const homeTitle = home?.title || 'домового чата';
           await (wrappedBotApi ?? bot.api).sendMessageToUser(
             user.user_id,
-            `Вы покинули чат «${homeTitle}». Доступ к сводкам и персональным оповещениям QuietChat приостановлен.`,
+            `Вы покинули чат «${homeTitle}». Доступ к сводкам и персональным оповещениям сервиса «Тихий Чат» приостановлен.`,
             { notify: true, format: 'markdown' },
           );
         } catch (error) {
@@ -330,7 +330,7 @@ async function processUpdate(payload: unknown): Promise<void> {
           const keyboard = config.MAX_MINI_APP_URL
             ? createWelcomeKeyboard(botUsername, directUrl, botContactId)
             : undefined;
-          const notificationText = `Вы вступили в чат «${homeTitle}». Доступ к персонализированным сводкам и уведомлениям QuietChat активен!`;
+          const notificationText = `Вы вступили в чат «${homeTitle}». Доступ к персонализированным сводкам и уведомлениям сервиса «Тихий Чат» активен!`;
           try {
             await (wrappedBotApi ?? bot.api).sendMessageToUser(
               user.user_id,

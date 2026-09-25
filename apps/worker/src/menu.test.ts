@@ -12,6 +12,7 @@ describe('private welcome menu', () => {
       { type: 'callback', text: '🗓️ 30 дней', payload: 'summary:month' },
     ]));
     expect(welcomeText).toContain('только сюда, в личный диалог');
+    expect(welcomeText).toContain('«Тихий Чат»');
   });
 
   it('supports passing bot username and contact ID with open_app button', () => {

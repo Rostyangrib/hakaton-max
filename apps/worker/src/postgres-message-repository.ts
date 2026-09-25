@@ -43,6 +43,15 @@ export class PostgresMessageRepository implements MessageRepository {
     return home.id;
   }
 
+  async getHomeTitle(homeId: string): Promise<string | null> {
+    const [home] = await this.database.db
+      .select({ title: homes.title })
+      .from(homes)
+      .where(eq(homes.id, homeId))
+      .limit(1);
+    return home?.title ?? null;
+  }
+
   async revokeMembership(homeId: string, maxUserId: bigint): Promise<void> {
     await this.database.db
       .update(residentProfiles)
@@ -177,20 +186,22 @@ export class PostgresMessageRepository implements MessageRepository {
         return null;
       }
 
-      const recent = await client.query(
-        `select 1 from alert_deliveries
-         where profile_id = $1
-           and sender_user_id = $2
-           and trigger_type = $3
-           and trigger_value = $4
-           and status in ('pending', 'processing', 'done')
-           and created_at >= now() - ($5::integer * interval '1 minute')
-         limit 1`,
-        [input.profileId, input.senderUserId.toString(), input.trigger.type, input.trigger.value, input.antifloodMinutes],
-      );
-      if (recent.rowCount) {
-        await client.query('commit');
-        return null;
+      if (input.antifloodMinutes > 0) {
+        const recent = await client.query(
+          `select 1 from alert_deliveries
+           where profile_id = $1
+             and sender_user_id = $2
+             and trigger_type = $3
+             and trigger_value = $4
+             and status in ('pending', 'processing', 'done')
+             and created_at >= now() - ($5::integer * interval '1 minute')
+           limit 1`,
+          [input.profileId, input.senderUserId.toString(), input.trigger.type, input.trigger.value, input.antifloodMinutes],
+        );
+        if (recent.rowCount) {
+          await client.query('commit');
+          return null;
+        }
       }
 
       const inserted = await client.query<{ id: string }>(

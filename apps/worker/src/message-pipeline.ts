@@ -63,6 +63,7 @@ export interface PipelineMembershipChecker {
 
 export interface MessageRepository {
   ensureHome(maxChatId: bigint): Promise<string>;
+  getHomeTitle?(homeId: string): Promise<string | null>;
   upsertCreated(homeId: string, message: IncomingMessage, normalizedText: string, payloadHash: string): Promise<StoredMessage>;
   updateEdited(homeId: string, message: IncomingMessage, normalizedText: string, payloadHash: string): Promise<StoredMessage | null>;
   markDeleted(homeId: string, maxMessageId: string, deletedAt: Date): Promise<boolean>;
@@ -107,7 +108,13 @@ export function parseIncomingMessage(value: unknown): IncomingMessage | null {
       : typeof rawSenderId === 'string' && /^\d+$/.test(rawSenderId)
         ? Number(rawSenderId)
         : null;
-  const chatId = value.recipient.chat_id;
+  const rawChatId = value.recipient.chat_id;
+  const chatId =
+    typeof rawChatId === 'number'
+      ? rawChatId
+      : typeof rawChatId === 'string' && /^-?\d+$/.test(rawChatId)
+        ? Number(rawChatId)
+        : null;
   const chatType = value.recipient.chat_type;
   const maxMessageId = value.body.mid;
   const text = value.body.text;
@@ -116,6 +123,7 @@ export function parseIncomingMessage(value: unknown): IncomingMessage | null {
   if (
     !senderId ||
     !Number.isSafeInteger(senderId) ||
+    chatId == null ||
     !Number.isSafeInteger(chatId) ||
     typeof chatType !== 'string' ||
     typeof maxMessageId !== 'string' ||
@@ -125,7 +133,7 @@ export function parseIncomingMessage(value: unknown): IncomingMessage | null {
   ) return null;
   return {
     maxMessageId,
-    chatId: chatId as number,
+    chatId,
     chatType,
     senderUserId: senderId,
     senderDisplayName: displayName,
@@ -162,9 +170,15 @@ export class MessagePipeline {
   }
 
   private async handleRemoved(update: MaxUpdate): Promise<boolean> {
-    const chatId = update.chat_id;
+    const rawChatId = update.chat_id;
+    const chatId =
+      typeof rawChatId === 'number'
+        ? rawChatId
+        : typeof rawChatId === 'string' && /^-?\d+$/.test(rawChatId)
+          ? Number(rawChatId)
+          : null;
     const messageId = update.message_id;
-    if (typeof chatId !== 'number' || !Number.isSafeInteger(chatId) || typeof messageId !== 'string') return false;
+    if (chatId == null || !Number.isSafeInteger(chatId) || typeof messageId !== 'string') return false;
     if (this.homeChatId != null && chatId !== this.homeChatId) return false;
     const homeId = await this.repository.ensureHome(BigInt(chatId));
     await this.repository.markDeleted(homeId, messageId, timestampToDate(update.timestamp) ?? new Date());
@@ -174,6 +188,7 @@ export class MessagePipeline {
   private async createAlerts(message: StoredMessage): Promise<void> {
     const profiles = await this.repository.findAlertProfiles(message.homeId, BigInt(message.senderUserId));
     const baseTriggers = detectMessageTriggers(message.text);
+    const homeTitle = (await this.repository.getHomeTitle?.(message.homeId)) || undefined;
 
     for (const profile of profiles) {
       const triggers = baseTriggers.filter((trigger) => triggerMatchesProfile(trigger, profile));
@@ -222,7 +237,7 @@ export class MessagePipeline {
         try {
           const recipientId = Number(profile.maxUserId);
           if (!Number.isSafeInteger(recipientId)) throw new Error('MAX user id exceeds JavaScript safe integer range');
-          await sendPrivateAlert(this.privateApi, recipientId, trigger, message.senderDisplayName, message.text);
+          await sendPrivateAlert(this.privateApi, recipientId, trigger, message.senderDisplayName, message.text, homeTitle);
           await this.repository.markDeliveryDone(reservation.id, new Date());
           break;
         } catch (error) {
