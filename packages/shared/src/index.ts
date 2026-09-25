@@ -45,6 +45,15 @@ export const residentProfileSchema = residentProfileInputSchema.extend({
 export type VehicleItem = z.infer<typeof vehicleItemSchema>;
 export type PropertyItem = z.infer<typeof propertyItemSchema>;
 
+export const profileResponseSchema = z.object({
+  profile: residentProfileSchema.nullable(),
+  isMember: z.boolean(),
+  homeChatTitle: z.string().nullable().optional(),
+  homeChatUrl: z.string().nullable().optional(),
+});
+
+export type ProfileResponse = z.infer<typeof profileResponseSchema> & Partial<ResidentProfile>;
+
 const userIdField = z.union([
   z.number().int().positive(),
   z.string().regex(/^\d+$/).transform(Number),

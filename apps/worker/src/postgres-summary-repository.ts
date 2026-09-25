@@ -18,6 +18,8 @@ export class PostgresSummaryRepository implements SummaryRepository {
         timezone: homes.timezone,
         apartment: residentProfiles.apartment,
         properties: residentProfiles.properties,
+        title: homes.title,
+        maxChatId: homes.maxChatId,
       })
       .from(residentProfiles)
       .innerJoin(homes, eq(residentProfiles.homeId, homes.id))
@@ -34,7 +36,83 @@ export class PostgresSummaryRepository implements SummaryRepository {
       id: row.id,
       timezone: row.timezone,
       apartment: row.apartment,
+      title: row.title,
+      maxChatId: row.maxChatId,
     };
+  }
+
+  async findHomesForResident(maxUserId: bigint) {
+    const rows = await this.database.db
+      .select({
+        id: homes.id,
+        timezone: homes.timezone,
+        apartment: residentProfiles.apartment,
+        title: homes.title,
+        maxChatId: homes.maxChatId,
+      })
+      .from(residentProfiles)
+      .innerJoin(homes, eq(residentProfiles.homeId, homes.id))
+      .where(and(
+        eq(residentProfiles.maxUserId, maxUserId),
+        isNotNull(residentProfiles.membershipVerifiedAt),
+        eq(homes.isActive, true),
+      ));
+    return rows.map((row) => ({
+      id: row.id,
+      timezone: row.timezone,
+      apartment: row.apartment,
+      title: row.title,
+      maxChatId: row.maxChatId,
+    }));
+  }
+
+  async findHomeById(homeId: string, maxUserId: bigint) {
+    const [row] = await this.database.db
+      .select({
+        id: homes.id,
+        timezone: homes.timezone,
+        apartment: residentProfiles.apartment,
+        title: homes.title,
+        maxChatId: homes.maxChatId,
+      })
+      .from(residentProfiles)
+      .innerJoin(homes, eq(residentProfiles.homeId, homes.id))
+      .where(and(
+        eq(homes.id, homeId),
+        eq(residentProfiles.maxUserId, maxUserId),
+        isNotNull(residentProfiles.membershipVerifiedAt),
+        eq(homes.isActive, true),
+      ))
+      .limit(1);
+    if (!row) return null;
+    return {
+      id: row.id,
+      timezone: row.timezone,
+      apartment: row.apartment,
+      title: row.title,
+      maxChatId: row.maxChatId,
+    };
+  }
+
+  async revokeMembership(homeId: string, maxUserId: bigint): Promise<void> {
+    await this.database.db
+      .update(residentProfiles)
+      .set({ membershipVerifiedAt: null, updatedAt: new Date() })
+      .where(and(
+        eq(residentProfiles.homeId, homeId),
+        eq(residentProfiles.maxUserId, maxUserId),
+      ));
+  }
+
+  async revokeMembershipByChatId(maxChatId: bigint, maxUserId: bigint): Promise<void> {
+    const [home] = await this.database.db
+      .select({ id: homes.id })
+      .from(homes)
+      .where(eq(homes.maxChatId, maxChatId))
+      .limit(1);
+    if (home) {
+      await this.revokeMembership(home.id, maxUserId);
+    }
   }
 
   async findCached(homeId: string, maxUserId: bigint, period: SummaryPeriod, createdAfter: Date): Promise<SummaryResult | null> {

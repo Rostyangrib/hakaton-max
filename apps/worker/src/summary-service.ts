@@ -12,10 +12,15 @@ export interface SummaryHome {
   id: string;
   timezone: string;
   apartment?: number;
+  title?: string;
+  maxChatId?: bigint;
 }
 
 export interface SummaryRepository {
   findHomeForResident(maxChatId: bigint, maxUserId: bigint): Promise<SummaryHome | null>;
+  findHomesForResident?(maxUserId: bigint): Promise<SummaryHome[]>;
+  findHomeById?(homeId: string, maxUserId: bigint): Promise<SummaryHome | null>;
+  revokeMembership?(homeId: string, maxUserId: bigint): Promise<void>;
   findCached(homeId: string, maxUserId: bigint, period: SummaryPeriod, createdAfter: Date): Promise<SummaryResult | null>;
   listMessages(homeId: string, from: Date, to: Date): Promise<SummarySourceMessage[]>;
   createJob(input: { homeId: string; requestedBy: bigint; from: Date; to: Date; messageCount: number }): Promise<string>;
@@ -26,7 +31,27 @@ export interface SummaryModel {
   summarize(messages: SummarySourceMessage[]): Promise<SummaryCategories>;
 }
 
-export class SummaryAccessError extends Error {}
+export interface SummaryMembershipChecker {
+  isMember(maxChatId: number, maxUserId: number): Promise<boolean>;
+}
+
+export class SummaryAccessError extends Error {
+  constructor(
+    message: string = 'Access denied',
+    public readonly code: 'NOT_REGISTERED' | 'LEFT_CHAT' = 'NOT_REGISTERED',
+    public readonly homeTitle?: string,
+  ) {
+    super(message);
+    this.name = 'SummaryAccessError';
+  }
+}
+
+export class MultipleHomesChoiceError extends Error {
+  constructor(public readonly homes: SummaryHome[]) {
+    super('Resident belongs to multiple homes, selection required');
+    this.name = 'MultipleHomesChoiceError';
+  }
+}
 
 export class SummaryService {
   constructor(
@@ -35,11 +60,51 @@ export class SummaryService {
     private readonly homeChatId: bigint,
     private readonly cacheTtlSeconds: number,
     private readonly now: () => Date = () => new Date(),
+    private readonly membershipChecker?: SummaryMembershipChecker | null,
   ) {}
 
-  async generate(maxUserId: bigint, period: SummaryPeriod): Promise<SummaryResult> {
-    const home = await this.repository.findHomeForResident(this.homeChatId, maxUserId);
-    if (!home) throw new SummaryAccessError('Resident profile is required to request a summary');
+  async findHomesForResident(maxUserId: bigint): Promise<SummaryHome[]> {
+    if (this.repository.findHomesForResident) {
+      const homes = await this.repository.findHomesForResident(maxUserId);
+      if (homes.length > 0) return homes;
+    }
+    const single = await this.repository.findHomeForResident(this.homeChatId, maxUserId);
+    return single ? [single] : [];
+  }
+
+  async generate(maxUserId: bigint, period: SummaryPeriod, homeId?: string): Promise<SummaryResult> {
+    let home: SummaryHome | null = null;
+    if (homeId && this.repository.findHomeById) {
+      home = await this.repository.findHomeById(homeId, maxUserId);
+      if (!home) throw new SummaryAccessError('Дом не найден или профиль не подтвержден', 'NOT_REGISTERED');
+    } else if (this.repository.findHomesForResident) {
+      const homes = await this.repository.findHomesForResident(maxUserId);
+      if (homes.length === 1) {
+        home = homes[0]!;
+      } else if (homes.length > 1) {
+        throw new MultipleHomesChoiceError(homes);
+      }
+    }
+
+    if (!home) {
+      home = await this.repository.findHomeForResident(this.homeChatId, maxUserId);
+    }
+    if (!home) throw new SummaryAccessError('Resident profile is required to request a summary', 'NOT_REGISTERED');
+
+    const maxChatId = home.maxChatId ?? this.homeChatId;
+    if (this.membershipChecker && maxChatId) {
+      const isMember = await this.membershipChecker.isMember(Number(maxChatId), Number(maxUserId));
+      if (!isMember) {
+        if (this.repository.revokeMembership) {
+          await this.repository.revokeMembership(home.id, maxUserId);
+        }
+        throw new SummaryAccessError(
+          `Пользователь не состоит в чате «${home.title || 'Домовой чат'}»`,
+          'LEFT_CHAT',
+          home.title,
+        );
+      }
+    }
 
     const now = this.now();
     const { from, to } = getSummaryPeriodRange(period, now, home.timezone);

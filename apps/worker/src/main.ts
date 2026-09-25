@@ -1,7 +1,7 @@
 import { Bot } from '@maxhub/max-bot-api';
 import { eq } from 'drizzle-orm';
 import { loadConfig } from '@quiet-chat/config';
-import { createDatabase, users } from '@quiet-chat/database';
+import { createDatabase, homes, users } from '@quiet-chat/database';
 import { maxUpdateSchema } from '@quiet-chat/shared';
 
 import { createWelcomeKeyboard, welcomeText } from './menu.js';
@@ -17,11 +17,11 @@ const config = loadConfig();
 const database = createDatabase(config.DATABASE_URL);
 const bot = config.MAX_BOT_TOKEN ? new Bot(config.MAX_BOT_TOKEN) : null;
 const configuredHomeChatId = Number(config.MAX_HOME_CHAT_ID);
-const messagePipeline = bot && Number.isSafeInteger(configuredHomeChatId)
+const messagePipeline = bot
   ? new MessagePipeline(
       new PostgresMessageRepository(database, config.HOME_TIMEZONE),
       bot.api,
-      configuredHomeChatId,
+      null,
       config.ALERT_ANTIFLOOD_MINUTES,
     )
   : null;
@@ -41,12 +41,36 @@ if (!summaryModel) {
     message: 'YandexGPT is not configured (missing YANDEX_CLOUD_API_KEY or YANDEX_CLOUD_FOLDER_ID); summaries will run in fallback mode',
   }));
 }
+
+const membershipCache = new Map<string, { isMember: boolean; expiresAt: number }>();
+const workerMembershipChecker = bot
+  ? {
+      async isMember(maxChatId: number, maxUserId: number) {
+        const key = `${maxChatId}:${maxUserId}`;
+        const cached = membershipCache.get(key);
+        const now = Date.now();
+        if (cached && cached.expiresAt > now) return cached.isMember;
+        try {
+          const response = await bot.api.getChatMembers(maxChatId, { user_ids: [maxUserId] });
+          const isMember = response.members.some((member: { user_id?: number; id?: number }) => (member.user_id ?? member.id) === maxUserId);
+          membershipCache.set(key, { isMember, expiresAt: now + 30_000 });
+          return isMember;
+        } catch {
+          return false;
+        }
+      },
+    }
+  : null;
+
+const summaryRepo = new PostgresSummaryRepository(database);
 const summaryService = bot && Number.isSafeInteger(configuredHomeChatId)
   ? new SummaryService(
-      new PostgresSummaryRepository(database),
+      summaryRepo,
       summaryModel,
       BigInt(configuredHomeChatId),
       config.SUMMARY_CACHE_TTL_SECONDS,
+      () => new Date(),
+      workerMembershipChecker,
     )
   : null;
 let botUsername = config.MAX_BOT_USERNAME || 'se14396800_bot';
@@ -231,6 +255,79 @@ async function processUpdate(payload: unknown): Promise<void> {
         .update(users)
         .set({ botStoppedAt: new Date(), updatedAt: new Date() })
         .where(eq(users.maxUserId, BigInt(user.user_id)));
+    }
+    return;
+  }
+
+  if (parsed.update_type === 'user_removed') {
+    const user = readUser(parsed.user);
+    const chatId = parsed.chat_id;
+    if (user && typeof chatId === 'number' && Number.isSafeInteger(chatId)) {
+      membershipCache.delete(`${chatId}:${user.user_id}`);
+      await summaryRepo.revokeMembershipByChatId(BigInt(chatId), BigInt(user.user_id));
+      if (bot) {
+        try {
+          const [home] = await database.db.select({ title: homes.title }).from(homes).where(eq(homes.maxChatId, BigInt(chatId))).limit(1);
+          const homeTitle = home?.title || 'домового чата';
+          await bot.api.sendMessageToUser(
+            user.user_id,
+            `Вы покинули чат «${homeTitle}». Доступ к сводкам и персональным оповещениям QuietChat приостановлен.`,
+          );
+        } catch {
+          // ignore notification error
+        }
+      }
+    }
+    return;
+  }
+
+  if (parsed.update_type === 'chat_title_changed') {
+    const chatId = parsed.chat_id;
+    const title = typeof parsed.title === 'string' ? parsed.title.trim() : '';
+    if (typeof chatId === 'number' && Number.isSafeInteger(chatId) && title) {
+      await database.db
+        .insert(homes)
+        .values({ maxChatId: BigInt(chatId), title, timezone: config.HOME_TIMEZONE })
+        .onConflictDoUpdate({
+          target: homes.maxChatId,
+          set: { title, updatedAt: new Date() },
+        });
+    }
+    return;
+  }
+
+  if (parsed.update_type === 'bot_added') {
+    const chatId = parsed.chat_id;
+    if (typeof chatId === 'number' && Number.isSafeInteger(chatId)) {
+      let title = 'Домовой чат';
+      let chatUrl: string | null = null;
+      if (bot) {
+        try {
+          const chat = await bot.api.getChat(chatId);
+          if (chat.title) title = chat.title;
+          if (chat.link) chatUrl = chat.link;
+        } catch {
+          // ignore
+        }
+      }
+      await database.db
+        .insert(homes)
+        .values({ maxChatId: BigInt(chatId), title, chatUrl, timezone: config.HOME_TIMEZONE })
+        .onConflictDoUpdate({
+          target: homes.maxChatId,
+          set: { ...(title !== 'Домовой чат' ? { title } : {}), ...(chatUrl ? { chatUrl } : {}), isActive: true, updatedAt: new Date() },
+        });
+    }
+    return;
+  }
+
+  if (parsed.update_type === 'bot_removed') {
+    const chatId = parsed.chat_id;
+    if (typeof chatId === 'number' && Number.isSafeInteger(chatId)) {
+      await database.db
+        .update(homes)
+        .set({ isActive: false, updatedAt: new Date() })
+        .where(eq(homes.maxChatId, BigInt(chatId)));
     }
     return;
   }

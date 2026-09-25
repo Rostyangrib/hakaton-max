@@ -597,6 +597,78 @@ input, textarea, select {
   flex-shrink: 0;
 }
 
+/* Membership Warning Banner */
+.membership-warning {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background-color: #FFF8E6;
+  border: 1px solid #F3AE0D;
+  margin-bottom: 20px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.membership-warning__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.membership-warning__icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background-color: #F3AE0D;
+  color: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.membership-warning__title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #7A5200;
+  line-height: 1.25;
+}
+
+.membership-warning__text {
+  font-size: 13px;
+  color: #5C4308;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.membership-warning__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background-color: #188DB5;
+  color: #FFFFFF;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 14px;
+  border-radius: 8px;
+  margin-top: 4px;
+  border: none;
+  cursor: pointer;
+  width: 100%;
+  box-sizing: border-box;
+  transition: background-color 0.15s ease;
+}
+
+.membership-warning__btn:hover {
+  background-color: #128EBC;
+}
+
 /* Browser fallback for direct web testing */
 .browser-fallback {
   margin: 0 0 16px;

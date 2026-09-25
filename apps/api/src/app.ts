@@ -136,10 +136,12 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
   });
 
   async function profileContext(
-    request: { id: string; cookies: Record<string, string | undefined>; headers?: Record<string, unknown> },
+    request: { id: string; cookies: Record<string, string | undefined>; headers?: Record<string, unknown>; query?: unknown },
     reply: FastifyReply,
   ) {
-    const { SESSION_SECRET: secret, MAX_HOME_CHAT_ID: chatId } = dependencies.config;
+    const { SESSION_SECRET: secret, MAX_HOME_CHAT_ID: defaultChatId } = dependencies.config;
+    const requestedChatId = (request.query as { chatId?: string })?.chatId;
+    const chatId = requestedChatId || defaultChatId;
     if (!dependencies.services || !secret || !chatId) {
       fail(reply, 503, request.id, 'MAX_NOT_CONFIGURED', 'MAX profile integration is not configured');
       return null;
@@ -165,8 +167,36 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
   app.get('/api/profile', async (request, reply) => {
     const context = await profileContext(request, reply);
     if (!context || reply.sent) return;
+    const maxUserIdNumber = Number(context.maxUserId);
+    const isMember = Number.isSafeInteger(maxUserIdNumber)
+      ? await dependencies.services!.membership.isMember(context.maxChatIdNumber, maxUserIdNumber)
+      : false;
+
+    const homeInDb = dependencies.services!.profiles.getHome
+      ? await dependencies.services!.profiles.getHome(context.maxChatId)
+      : null;
+    let homeChatTitle = homeInDb?.title || null;
+    let homeChatUrl = homeInDb?.chatUrl || dependencies.config.MAX_HOME_CHAT_URL || null;
+
+    if (!homeChatTitle || !homeChatUrl) {
+      const chatInfo = dependencies.services!.membership.getChatInfo
+        ? await dependencies.services!.membership.getChatInfo(context.maxChatIdNumber)
+        : null;
+      if (chatInfo) {
+        if (!homeChatTitle && chatInfo.title) homeChatTitle = chatInfo.title;
+        if (!homeChatUrl && chatInfo.chatUrl) homeChatUrl = chatInfo.chatUrl;
+      }
+    }
+    if (!homeChatTitle) homeChatTitle = 'Домовой чат';
+
     const profile = await dependencies.services!.profiles.getProfile(context.maxUserId, context.maxChatId);
-    return reply.code(200).send(envelope(request.id, profile));
+    return reply.code(200).send(envelope(request.id, {
+      profile,
+      isMember,
+      homeChatTitle,
+      homeChatUrl,
+      ...(profile ? profile : {}),
+    }));
   });
 
   app.put('/api/profile', async (request, reply) => {
@@ -178,7 +208,16 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     const maxUserIdNumber = Number(context.maxUserId);
     if (!Number.isSafeInteger(maxUserIdNumber)) return fail(reply, 400, request.id, 'INVALID_USER_ID', 'MAX user id is invalid');
     const member = await dependencies.services!.membership.isMember(context.maxChatIdNumber, maxUserIdNumber);
-    if (!member) return fail(reply, 403, request.id, 'NOT_HOME_MEMBER', 'User is not a member of the configured home chat');
+    if (!member) {
+      const homeInDb = dependencies.services!.profiles.getHome
+        ? await dependencies.services!.profiles.getHome(context.maxChatId)
+        : null;
+      const title = homeInDb?.title;
+      const errorMsg = title
+        ? `Вы не являетесь участником домового чата «${title}». Вступите в чат дома, чтобы бот мог присылать вам уведомления.`
+        : 'Вы не являетесь участником домового чата. Вступите в чат дома, чтобы бот мог присылать вам уведомления.';
+      return fail(reply, 403, request.id, 'NOT_HOME_MEMBER', errorMsg);
+    }
     const profile = await dependencies.services!.profiles.saveProfile(
       context.maxUserId,
       context.maxChatId,

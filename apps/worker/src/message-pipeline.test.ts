@@ -29,9 +29,9 @@ function repository(reservation = true) {
     sentAt: new Date('2023-11-14T22:13:20.000Z'),
   };
   return {
-    ensureHome: vi.fn(async () => 'home-uuid'),
-    upsertCreated: vi.fn(async (_home, message) => ({ ...stored, ...message })),
-    updateEdited: vi.fn(async (_home, message) => ({ ...stored, ...message })),
+    ensureHome: vi.fn(async (_chatId: bigint) => 'home-uuid'),
+    upsertCreated: vi.fn(async (home, message) => ({ ...stored, ...message, homeId: home })),
+    updateEdited: vi.fn(async (home, message) => ({ ...stored, ...message, homeId: home })),
     markDeleted: vi.fn(async () => true),
     findAlertProfiles: vi.fn(async (): Promise<AlertProfile[]> => [{
       id: 'profile-uuid',
@@ -240,5 +240,25 @@ describe('message pipeline', () => {
     // Russian case ending: Кто-то поцарапал мазду
     expect(await pipeline.handle(createdUpdate('Кто-то поцарапал мазду во дворе'))).toBe(true);
     expect(privateApi.sendMessageToUser).toHaveBeenCalledWith(42, expect.stringContaining('Mazda CX-5'));
+  });
+
+  it('routes messages from multiple distinct group chats to their respective homes when homeChatId is null', async () => {
+    const repo = repository();
+    repo.ensureHome = vi.fn(async (chatId: bigint) => `home-uuid-${chatId}`);
+    const privateApi = { sendMessageToUser: vi.fn(async () => ({})) };
+    // homeChatId is null -> multichat mode
+    const multichatPipeline = new MessagePipeline(repo, privateApi, null, 15);
+
+    // Message from chat 1001
+    expect(await multichatPipeline.handle(createdUpdate('Хозяин кв. 54', 1001))).toBe(true);
+    expect(repo.ensureHome).toHaveBeenCalledWith(1001n);
+    expect(repo.upsertCreated).toHaveBeenCalledWith('home-uuid-1001', expect.anything(), expect.anything(), expect.anything());
+    expect(repo.findAlertProfiles).toHaveBeenCalledWith('home-uuid-1001', 10n);
+
+    // Message from chat 2002
+    expect(await multichatPipeline.handle(createdUpdate('Хозяин кв. 54', 2002))).toBe(true);
+    expect(repo.ensureHome).toHaveBeenCalledWith(2002n);
+    expect(repo.upsertCreated).toHaveBeenCalledWith('home-uuid-2002', expect.anything(), expect.anything(), expect.anything());
+    expect(repo.findAlertProfiles).toHaveBeenCalledWith('home-uuid-2002', 10n);
   });
 });

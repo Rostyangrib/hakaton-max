@@ -133,7 +133,7 @@ export class MessagePipeline {
   constructor(
     private readonly repository: MessageRepository,
     private readonly privateApi: PrivateMessageApi,
-    private readonly homeChatId: number,
+    private readonly homeChatId: number | null | undefined,
     private readonly antifloodMinutes: number,
   ) {}
 
@@ -142,8 +142,9 @@ export class MessagePipeline {
     if (update.update_type !== 'message_created' && update.update_type !== 'message_edited') return false;
 
     const message = parseIncomingMessage(update.message);
-    if (!message || message.chatType !== 'chat' || message.chatId !== this.homeChatId || !message.text.trim()) return false;
-    const homeId = await this.repository.ensureHome(BigInt(this.homeChatId));
+    if (!message || message.chatType !== 'chat' || !message.text.trim()) return false;
+    if (this.homeChatId != null && message.chatId !== this.homeChatId) return false;
+    const homeId = await this.repository.ensureHome(BigInt(message.chatId));
     const normalized = normalizeText(message.text);
     const payloadHash = createHash('sha256').update(message.text).digest('hex');
     const stored = update.update_type === 'message_created'
@@ -157,8 +158,9 @@ export class MessagePipeline {
   private async handleRemoved(update: MaxUpdate): Promise<boolean> {
     const chatId = update.chat_id;
     const messageId = update.message_id;
-    if (!Number.isSafeInteger(chatId) || chatId !== this.homeChatId || typeof messageId !== 'string') return false;
-    const homeId = await this.repository.ensureHome(BigInt(this.homeChatId));
+    if (typeof chatId !== 'number' || !Number.isSafeInteger(chatId) || typeof messageId !== 'string') return false;
+    if (this.homeChatId != null && chatId !== this.homeChatId) return false;
+    const homeId = await this.repository.ensureHome(BigInt(chatId));
     await this.repository.markDeleted(homeId, messageId, timestampToDate(update.timestamp) ?? new Date());
     return true;
   }

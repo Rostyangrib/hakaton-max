@@ -276,6 +276,50 @@ describe('SummaryCallbackHandler', () => {
     expect(handler.getPendingStatusMid(215608884)).toBeUndefined();
   });
 
+  it('handles SummaryAccessError with LEFT_CHAT code by sending polite revocation notice in Russian', async () => {
+    const botApi: SummaryBotApi = {
+      answerOnCallback: vi.fn().mockResolvedValue({ success: true }),
+      sendMessageToUser: vi.fn().mockResolvedValue({ body: { mid: 'mid-status-left' } }),
+      editMessage: vi.fn().mockResolvedValue({ success: true }),
+      deleteMessage: vi.fn(),
+    };
+    const summaryService = {
+      generate: vi.fn().mockRejectedValue(new SummaryAccessError('left chat', 'LEFT_CHAT', 'ЖК Северный')),
+    };
+
+    const handler = new SummaryCallbackHandler({ botApi, summaryService });
+    const result = await handler.handle(createMockUpdate());
+    expect(result).toBe(true);
+
+    expect(botApi.editMessage).toHaveBeenCalledWith('mid-status-left', expect.objectContaining({
+      text: expect.stringContaining('Вы больше не состоите в домовом чате «ЖК Северный»'),
+    }));
+  });
+
+  it('renders home selection keyboard when MultipleHomesChoiceError is thrown', async () => {
+    const botApi: SummaryBotApi = {
+      answerOnCallback: vi.fn().mockResolvedValue({ success: true }),
+      sendMessageToUser: vi.fn().mockResolvedValue({ body: { mid: 'mid-status-multi' } }),
+      editMessage: vi.fn().mockResolvedValue({ success: true }),
+      deleteMessage: vi.fn(),
+    };
+    const { MultipleHomesChoiceError } = await import('./summary-service.js');
+    const summaryService = {
+      generate: vi.fn().mockRejectedValue(new MultipleHomesChoiceError([
+        { id: 'h1', timezone: 'Asia/Irkutsk', title: 'ЖК Северный' },
+        { id: 'h2', timezone: 'Asia/Irkutsk', title: 'ЖК Южный' },
+      ])),
+    };
+
+    const handler = new SummaryCallbackHandler({ botApi, summaryService });
+    const result = await handler.handle(createMockUpdate('summary:today'));
+    expect(result).toBe(true);
+
+    expect(botApi.editMessage).toHaveBeenCalledWith('mid-status-multi', expect.objectContaining({
+      text: expect.stringContaining('Вы состоите в нескольких домах'),
+    }));
+  });
+
   it('deletes status message and cleans up when unexpected error occurs during generation', async () => {
     const botApi: SummaryBotApi = {
       answerOnCallback: vi.fn().mockResolvedValue({ success: true }),

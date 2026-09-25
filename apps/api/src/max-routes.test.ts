@@ -126,6 +126,41 @@ describe('profile routes', () => {
     expect(data.vehicles[0].plate).toBe('А123ВС77');
     expect(data.vehicles[1].description).toBe('Черный Haval');
   });
+
+  it('returns membership status, chat title and join url in GET /api/profile, and localized error on save if not member', async () => {
+    const membership = {
+      isMember: vi.fn(async () => false),
+      getChatInfo: vi.fn(async () => ({ title: 'ЖК Тихий Дом', chatUrl: 'https://max.ru/chat-123' })),
+    };
+    const profileServices = services({
+      membership,
+      profiles: {
+        ...services().profiles,
+        getHome: vi.fn(async () => ({ title: 'ЖК Тихий Дом', chatUrl: 'https://max.ru/chat-123' })),
+      },
+    });
+    const app = await buildApp({ config: config(), databaseCheck: async () => {}, services: profileServices });
+    apps.push(app);
+    const cookie = `quietchat_session=${createSession(10n, 'session-secret-with-enough-entropy', 3_600)}`;
+
+    const getRes = await app.inject({ method: 'GET', url: '/api/profile', headers: { cookie } });
+    expect(getRes.statusCode).toBe(200);
+    const body = getRes.json();
+    expect(body.data.isMember).toBe(false);
+    expect(body.data.homeChatTitle).toBe('ЖК Тихий Дом');
+    expect(body.data.homeChatUrl).toBe('https://max.ru/chat-123');
+
+    // PUT when not member returns localized error in Russian
+    const putRes = await app.inject({
+      method: 'PUT',
+      url: '/api/profile',
+      headers: { cookie },
+      payload: { apartment: 54, entrance: 3, floor: 8, alertsEnabled: true },
+    });
+    expect(putRes.statusCode).toBe(403);
+    expect(putRes.json().error.message).toContain('Вы не являетесь участником домового чата');
+    expect(putRes.json().error.message).toContain('ЖК Тихий Дом');
+  });
 });
 
 describe('MAX initData auth route', () => {

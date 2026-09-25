@@ -166,6 +166,14 @@ export function createPersistence(db: Database): ProfileStore & WebhookInbox {
         .limit(1);
       return user ?? null;
     },
+    async getHome(maxChatId) {
+      const [home] = await db
+        .select({ title: homes.title, chatUrl: homes.chatUrl })
+        .from(homes)
+        .where(eq(homes.maxChatId, maxChatId))
+        .limit(1);
+      return home ?? null;
+    },
     async enqueue(eventKey: string, update: MaxUpdate) {
       const inserted = await db
         .insert(webhookEvents)

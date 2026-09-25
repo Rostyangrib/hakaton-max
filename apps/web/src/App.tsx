@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 
-import type { ApiEnvelope, ResidentProfile } from '@quiet-chat/shared';
+import type { ApiEnvelope, ProfileResponse, ResidentProfile } from '@quiet-chat/shared';
 
 const apiBaseUrl = import.meta.env.VITE_API_URL ?? '';
 
@@ -101,6 +101,9 @@ export function App() {
   const [phase, setPhase] = useState<'loading' | 'ready' | 'saving' | 'error'>('loading');
   const [message, setMessage] = useState('Подключаемся к MAX…');
   const [displayName, setDisplayName] = useState('');
+  const [isMember, setIsMember] = useState<boolean | null>(null);
+  const [homeChatTitle, setHomeChatTitle] = useState('Домовой чат');
+  const [homeChatUrl, setHomeChatUrl] = useState<string | null>(null);
 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -130,8 +133,12 @@ export function App() {
         vehicles: [{ plate: 'A123BC77', description: 'Белая Toyota Camry' }],
         alertsEnabled: true,
       });
+      const demoNotMember = urlParams.get('not_member') === '1' || hashParams.get('not_member') === '1';
+      setIsMember(!demoNotMember);
+      setHomeChatTitle('ЖК «Тихий Дом»');
+      setHomeChatUrl('https://max.ru/chat-demo');
       setPhase('ready');
-      setMessage('Профиль заполнен');
+      setMessage(demoNotMember ? 'Вступите в чат дома для работы бота' : 'Профиль заполнен');
       return;
     }
 
@@ -159,10 +166,20 @@ export function App() {
           setSessionToken(auth.sessionToken);
           setDisplayName(auth.displayName);
         }
-        const profile = await api<ResidentProfile | null>('/api/profile');
+        const res = await api<ProfileResponse | (ResidentProfile & { isMember?: boolean; homeChatTitle?: string; homeChatUrl?: string })>('/api/profile');
+        const profile = res && 'profile' in res && res.profile !== undefined ? res.profile : (res as ResidentProfile | null);
+        const memberStatus = typeof res?.isMember === 'boolean' ? res.isMember : true;
+        setIsMember(memberStatus);
+        if (res?.homeChatTitle) setHomeChatTitle(res.homeChatTitle);
+        if (res?.homeChatUrl) setHomeChatUrl(res.homeChatUrl);
+
         setForm(fromProfile(profile));
         setPhase('ready');
-        setMessage(profile ? 'Профиль заполнен' : 'Заполните данные для персональных уведомлений');
+        if (!memberStatus) {
+          setMessage(`Для работы бота необходимо вступить в чат «${res?.homeChatTitle || 'Домовой чат'}»`);
+        } else {
+          setMessage(profile ? 'Профиль заполнен' : 'Заполните данные для персональных уведомлений');
+        }
       } catch (error) {
         activeSessionToken = null;
         try {
@@ -207,6 +224,11 @@ export function App() {
 
   async function save(event: FormEvent) {
     event.preventDefault();
+    if (isMember === false) {
+      setPhase('error');
+      setMessage(`Для сохранения профиля необходимо сначала вступить в домовой чат «${homeChatTitle}»`);
+      return;
+    }
     setPhase('saving');
     setMessage('Сохраняем…');
     try {
@@ -345,6 +367,29 @@ export function App() {
       </div>
 
       <form className="form" onSubmit={(event) => void save(event)}>
+        {/* Warning if not a member */}
+        {isMember === false && (
+          <aside className="membership-warning" role="alert" aria-label="Предупреждение о членстве в чате">
+            <div className="membership-warning__header">
+              <div className="membership-warning__icon" aria-hidden="true">!</div>
+              <div className="membership-warning__title">Вы ещё не вступили в домовой чат</div>
+            </div>
+            <p className="membership-warning__text">
+              Чтобы QuietChat мог присылать вам персональные уведомления и сводки по дому «{homeChatTitle}», необходимо вступить в домовой чат.
+            </p>
+            {homeChatUrl && (
+              <a
+                href={homeChatUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="membership-warning__btn"
+              >
+                Вступить в домовой чат
+              </a>
+            )}
+          </aside>
+        )}
+
         {/* Section 01 - Адрес */}
         <section aria-labelledby="section-01-title">
           <div className="section-header">
@@ -577,8 +622,17 @@ export function App() {
         )}
 
         {/* Submit CTA Button */}
-        <button type="submit" className="submit-button" disabled={disabled}>
-          {phase === 'saving' ? 'Сохранение…' : 'Сохранить изменения'}
+        <button
+          type="submit"
+          className="submit-button"
+          disabled={disabled || isMember === false}
+          title={isMember === false ? `Сначала вступите в домовой чат «${homeChatTitle}»` : undefined}
+        >
+          {phase === 'saving'
+            ? 'Сохранение…'
+            : isMember === false
+              ? 'Сначала вступите в домовой чат'
+              : 'Сохранить изменения'}
         </button>
 
         {/* Footer */}

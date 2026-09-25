@@ -1,8 +1,9 @@
+import { Keyboard } from '@maxhub/max-bot-api';
 import { summaryPeriodSchema, type SummaryPeriod, type SummaryResult } from '@quiet-chat/shared';
 
 import { createSummaryKeyboard } from './menu.js';
 import { renderSummary } from './summary.js';
-import { SummaryAccessError } from './summary-service.js';
+import { MultipleHomesChoiceError, SummaryAccessError, type SummaryHome } from './summary-service.js';
 
 export interface MaxUserPayload {
   user_id: number;
@@ -20,7 +21,8 @@ export interface SummaryBotApi {
 export interface SummaryCallbackOptions {
   botApi: SummaryBotApi;
   summaryService: {
-    generate(userId: bigint, period: SummaryPeriod): Promise<SummaryResult>;
+    generate(userId: bigint, period: SummaryPeriod, homeId?: string): Promise<SummaryResult>;
+    findHomesForResident?(userId: bigint): Promise<SummaryHome[]>;
   };
   onUserSeen?: (user: MaxUserPayload) => Promise<void>;
   getUserDirectUrl?: (userId: number) => string | undefined;
@@ -91,17 +93,41 @@ export class SummaryCallbackHandler {
     if (!user || isGroupChat || typeof callbackId !== 'string' || typeof payload !== 'string') {
       return false;
     }
-    const rawPayload = payload.startsWith('summary:') ? payload.slice(8) : '';
-    const period = summaryPeriodSchema.safeParse(rawPayload);
+    if (!payload.startsWith('summary:')) return false;
+    const rawPayload = payload.slice(8);
+
+    if (this.options.onUserSeen) {
+      await this.options.onUserSeen(user);
+    }
+
+    if (rawPayload === 'choose_home') {
+      await this.options.botApi.answerOnCallback(callbackId).catch(() => undefined);
+      const homes = this.options.summaryService.findHomesForResident
+        ? await this.options.summaryService.findHomesForResident(BigInt(user.user_id)).catch(() => [])
+        : [];
+      if (homes.length === 0) {
+        const text = 'Сначала заполните профиль и подтвердите принадлежность к домовому чату.';
+        const directUrl = this.options.getUserDirectUrl?.(user.user_id);
+        const keyboard = this.options.getWelcomeKeyboard?.(directUrl);
+        await this.options.botApi.sendMessageToUser(user.user_id, text, keyboard ? { attachments: [keyboard] } : undefined);
+        return true;
+      }
+      const keyboard = Keyboard.inlineKeyboard(
+        homes.map((h) => [Keyboard.button.callback(h.title || 'Дом', `summary:today:${h.id}`)])
+      );
+      await this.options.botApi.sendMessageToUser(user.user_id, 'Выберите дом для получения сводки:', {
+        attachments: [keyboard],
+      });
+      return true;
+    }
+
+    const [periodStr, targetHomeId] = rawPayload.split(':');
+    const period = summaryPeriodSchema.safeParse(periodStr);
     if (!period.success) return false;
 
     // Инкрементируем порядковый номер запроса пользователя для защиты от гонок и повторных кликов
     const requestId = (this.activeRequestSeq.get(user.user_id) ?? 0) + 1;
     this.activeRequestSeq.set(user.user_id, requestId);
-
-    if (this.options.onUserSeen) {
-      await this.options.onUserSeen(user);
-    }
 
     // 1. Снимаем индикатор загрузки с кнопки без отправки неуправляемого сообщения от платформы MAX
     await this.options.botApi.answerOnCallback(callbackId).catch(() => undefined);
@@ -140,7 +166,9 @@ export class SummaryCallbackHandler {
     }
 
     try {
-      const summary = await this.options.summaryService.generate(BigInt(user.user_id), period.data);
+      const summary = targetHomeId
+        ? await this.options.summaryService.generate(BigInt(user.user_id), period.data, targetHomeId)
+        : await this.options.summaryService.generate(BigInt(user.user_id), period.data);
 
       // Проверяем актуальность запроса после ожидания генерации
       if (this.activeRequestSeq.get(user.user_id) !== requestId) {
@@ -154,7 +182,10 @@ export class SummaryCallbackHandler {
       }
 
       const summaryText = renderSummary(summary);
-      const summaryKeyboard = createSummaryKeyboard();
+      const userHomes = this.options.summaryService.findHomesForResident
+        ? await this.options.summaryService.findHomesForResident(BigInt(user.user_id)).catch(() => [])
+        : [];
+      const summaryKeyboard = createSummaryKeyboard(targetHomeId, userHomes.length > 1);
 
       let edited = false;
       if (statusMid) {
@@ -206,8 +237,40 @@ export class SummaryCallbackHandler {
         return true;
       }
 
+      if (error instanceof MultipleHomesChoiceError) {
+        const keyboard = Keyboard.inlineKeyboard(
+          error.homes.map((h) => [Keyboard.button.callback(h.title || 'Дом', `summary:${period.data}:${h.id}`)])
+        );
+        const text = 'Вы состоите в нескольких домах. Выберите нужный дом:';
+        let edited = false;
+        if (statusMid) {
+          try {
+            await this.options.botApi.editMessage(statusMid, {
+              text,
+              attachments: [keyboard],
+            });
+            edited = true;
+          } catch {
+            edited = false;
+          }
+        }
+        if (!edited) {
+          await this.options.botApi.sendMessageToUser(user.user_id, text, { attachments: [keyboard] });
+          if (statusMid) await this.options.botApi.deleteMessage(statusMid).catch(() => undefined);
+        }
+        if (statusMid && this.pendingStatusMids.get(user.user_id) === statusMid) {
+          this.pendingStatusMids.delete(user.user_id);
+        }
+        return true;
+      }
+
       if (error instanceof SummaryAccessError) {
-        const text = 'Сначала заполните профиль и подтвердите принадлежность к домовому чату.';
+        let text = 'Сначала заполните профиль и подтвердите принадлежность к домовому чату.';
+        if (error.code === 'LEFT_CHAT') {
+          text = error.homeTitle
+            ? `Вы больше не состоите в домовом чате «${error.homeTitle}». Доступ к сводкам и уведомлениям QuietChat приостановлен. Чтобы возобновить доступ, вступите в домовой чат.`
+            : 'Вы больше не состоите в домовом чате. Доступ к сводкам и уведомлениям QuietChat приостановлен. Чтобы возобновить доступ, вступите в домовой чат.';
+        }
         const directUrl = this.options.getUserDirectUrl?.(user.user_id);
         const keyboard = this.options.getWelcomeKeyboard?.(directUrl);
 

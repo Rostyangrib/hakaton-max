@@ -86,4 +86,39 @@ describe('SummaryService', () => {
     const repo = repository({ findHomeForResident: vi.fn(async () => null) });
     await expect(new SummaryService(repo, null, 777n, 600, () => now).generate(42n, 'today')).rejects.toBeInstanceOf(SummaryAccessError);
   });
+
+  it('performs JIT membership check, revokes verifiedAt in repository and throws LEFT_CHAT when user has left the chat', async () => {
+    const revokeMembership = vi.fn(async () => {});
+    const repo = repository({
+      findHomeForResident: vi.fn(async () => ({ id: 'home-1', timezone: 'Asia/Irkutsk', maxChatId: 777n, title: 'ЖК Уютный' })),
+      revokeMembership,
+    });
+    const membershipChecker = { isMember: vi.fn(async () => false) };
+    const service = new SummaryService(repo, null, 777n, 600, () => now, membershipChecker);
+
+    await expect(service.generate(42n, 'today')).rejects.toThrow(SummaryAccessError);
+    expect(membershipChecker.isMember).toHaveBeenCalledWith(777, 42);
+    expect(revokeMembership).toHaveBeenCalledWith('home-1', 42n);
+  });
+
+  it('prompts home choice when resident belongs to multiple homes and no homeId is specified', async () => {
+    const repo = repository({
+      findHomesForResident: vi.fn(async () => [
+        { id: 'home-1', timezone: 'Asia/Irkutsk', title: 'ЖК Северный' },
+        { id: 'home-2', timezone: 'Asia/Irkutsk', title: 'ЖК Южный' },
+      ]),
+      findHomeById: vi.fn(async (id) => ({ id, timezone: 'Asia/Irkutsk', title: id === 'home-1' ? 'ЖК Северный' : 'ЖК Южный' })),
+    });
+    const model = { summarize: vi.fn(async () => ({ housing: [], yard: [], community: [] })) };
+    const service = new SummaryService(repo, model, 777n, 600, () => now);
+
+    // No homeId: should throw MultipleHomesChoiceError with both homes
+    await expect(service.generate(42n, 'today')).rejects.toThrow();
+
+    // With homeId: generates summary for the specified home
+    const result = await service.generate(42n, 'today', 'home-2');
+    expect(result.mode).toBe('yandexgpt');
+    expect(repo.findHomeById).toHaveBeenCalledWith('home-2', 42n);
+    expect(repo.createJob).toHaveBeenCalledWith(expect.objectContaining({ homeId: 'home-2' }));
+  });
 });
