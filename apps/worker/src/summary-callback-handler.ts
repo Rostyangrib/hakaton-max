@@ -272,7 +272,12 @@ export class SummaryCallbackHandler {
             : 'Вы больше не состоите в домовом чате. Доступ к сводкам и уведомлениям QuietChat приостановлен. Чтобы возобновить доступ, вступите в домовой чат.';
         }
         const directUrl = this.options.getUserDirectUrl?.(user.user_id);
-        const keyboard = this.options.getWelcomeKeyboard?.(directUrl);
+        let keyboard = this.options.getWelcomeKeyboard?.(directUrl);
+        if (error.code === 'LEFT_CHAT' && error.homeChatUrl) {
+          const joinButton = [Keyboard.button.link('Вступить в домовой чат', error.homeChatUrl)];
+          const existingRows = (keyboard as { payload?: { buttons?: unknown[][] } })?.payload?.buttons ?? [];
+          keyboard = Keyboard.inlineKeyboard([joinButton, ...(existingRows as any)]);
+        }
 
         let edited = false;
         if (statusMid) {

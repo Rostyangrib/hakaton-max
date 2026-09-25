@@ -19,14 +19,15 @@ export class PostgresSummaryRepository implements SummaryRepository {
         apartment: residentProfiles.apartment,
         properties: residentProfiles.properties,
         title: homes.title,
+        chatUrl: homes.chatUrl,
         maxChatId: homes.maxChatId,
+        membershipVerifiedAt: residentProfiles.membershipVerifiedAt,
       })
       .from(residentProfiles)
       .innerJoin(homes, eq(residentProfiles.homeId, homes.id))
       .where(and(
         eq(homes.maxChatId, maxChatId),
         eq(residentProfiles.maxUserId, maxUserId),
-        isNotNull(residentProfiles.membershipVerifiedAt),
         eq(homes.isActive, true),
       ))
       .limit(1);
@@ -37,7 +38,9 @@ export class PostgresSummaryRepository implements SummaryRepository {
       timezone: row.timezone,
       apartment: row.apartment,
       title: row.title,
+      chatUrl: row.chatUrl,
       maxChatId: row.maxChatId,
+      membershipVerifiedAt: row.membershipVerifiedAt,
     };
   }
 
@@ -48,13 +51,14 @@ export class PostgresSummaryRepository implements SummaryRepository {
         timezone: homes.timezone,
         apartment: residentProfiles.apartment,
         title: homes.title,
+        chatUrl: homes.chatUrl,
         maxChatId: homes.maxChatId,
+        membershipVerifiedAt: residentProfiles.membershipVerifiedAt,
       })
       .from(residentProfiles)
       .innerJoin(homes, eq(residentProfiles.homeId, homes.id))
       .where(and(
         eq(residentProfiles.maxUserId, maxUserId),
-        isNotNull(residentProfiles.membershipVerifiedAt),
         eq(homes.isActive, true),
       ));
     return rows.map((row) => ({
@@ -62,7 +66,9 @@ export class PostgresSummaryRepository implements SummaryRepository {
       timezone: row.timezone,
       apartment: row.apartment,
       title: row.title,
+      chatUrl: row.chatUrl,
       maxChatId: row.maxChatId,
+      membershipVerifiedAt: row.membershipVerifiedAt,
     }));
   }
 
@@ -73,14 +79,15 @@ export class PostgresSummaryRepository implements SummaryRepository {
         timezone: homes.timezone,
         apartment: residentProfiles.apartment,
         title: homes.title,
+        chatUrl: homes.chatUrl,
         maxChatId: homes.maxChatId,
+        membershipVerifiedAt: residentProfiles.membershipVerifiedAt,
       })
       .from(residentProfiles)
       .innerJoin(homes, eq(residentProfiles.homeId, homes.id))
       .where(and(
         eq(homes.id, homeId),
         eq(residentProfiles.maxUserId, maxUserId),
-        isNotNull(residentProfiles.membershipVerifiedAt),
         eq(homes.isActive, true),
       ))
       .limit(1);
@@ -90,7 +97,9 @@ export class PostgresSummaryRepository implements SummaryRepository {
       timezone: row.timezone,
       apartment: row.apartment,
       title: row.title,
+      chatUrl: row.chatUrl,
       maxChatId: row.maxChatId,
+      membershipVerifiedAt: row.membershipVerifiedAt,
     };
   }
 
@@ -112,6 +121,27 @@ export class PostgresSummaryRepository implements SummaryRepository {
       .limit(1);
     if (home) {
       await this.revokeMembership(home.id, maxUserId);
+    }
+  }
+
+  async verifyMembership(homeId: string, maxUserId: bigint): Promise<void> {
+    await this.database.db
+      .update(residentProfiles)
+      .set({ membershipVerifiedAt: new Date(), updatedAt: new Date() })
+      .where(and(
+        eq(residentProfiles.homeId, homeId),
+        eq(residentProfiles.maxUserId, maxUserId),
+      ));
+  }
+
+  async verifyMembershipByChatId(maxChatId: bigint, maxUserId: bigint): Promise<void> {
+    const [home] = await this.database.db
+      .select({ id: homes.id })
+      .from(homes)
+      .where(eq(homes.maxChatId, maxChatId))
+      .limit(1);
+    if (home) {
+      await this.verifyMembership(home.id, maxUserId);
     }
   }
 

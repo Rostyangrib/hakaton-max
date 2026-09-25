@@ -38,7 +38,7 @@ export const residentProfileInputSchema = z.object({
 export const residentProfileSchema = residentProfileInputSchema.extend({
   properties: z.array(propertyItemSchema).default([]),
   vehicles: z.array(vehicleItemSchema).default([]),
-  membershipVerifiedAt: z.string().datetime(),
+  membershipVerifiedAt: z.string().datetime().nullable().optional(),
   updatedAt: z.string().datetime(),
 });
 
@@ -118,6 +118,7 @@ export const summaryResultSchema = summaryCategoriesSchema.extend({
   generatedAt: z.string().datetime(),
   mode: z.enum(['yandexgpt', 'fallback']),
   cached: z.boolean(),
+  homeTitle: z.string().optional(),
   apartmentFilter: z.number().int().positive().optional(),
   residentApartments: z.array(z.number().int().positive()).optional(),
 }).strict();

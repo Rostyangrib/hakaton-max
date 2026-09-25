@@ -57,6 +57,10 @@ export interface DeliveryReservation {
   id: string;
 }
 
+export interface PipelineMembershipChecker {
+  isMember(maxChatId: number, maxUserId: number): Promise<boolean>;
+}
+
 export interface MessageRepository {
   ensureHome(maxChatId: bigint): Promise<string>;
   upsertCreated(homeId: string, message: IncomingMessage, normalizedText: string, payloadHash: string): Promise<StoredMessage>;
@@ -72,6 +76,7 @@ export interface MessageRepository {
   }): Promise<DeliveryReservation | null>;
   markDeliveryDone(id: string, sentAt: Date): Promise<void>;
   markDeliveryFailed(id: string, error: string): Promise<void>;
+  revokeMembership?(homeId: string, maxUserId: bigint): Promise<void>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -135,6 +140,7 @@ export class MessagePipeline {
     private readonly privateApi: PrivateMessageApi,
     private readonly homeChatId: number | null | undefined,
     private readonly antifloodMinutes: number,
+    private readonly membershipChecker?: PipelineMembershipChecker | null,
   ) {}
 
   async handle(update: MaxUpdate): Promise<boolean> {
@@ -191,6 +197,19 @@ export class MessagePipeline {
 
       const uniqueTriggers = [...new Map(triggers.map((trigger) => [`${trigger.type}:${trigger.value}`, trigger])).values()];
       for (const trigger of uniqueTriggers) {
+        const recipientId = Number(profile.maxUserId);
+        if (!Number.isSafeInteger(recipientId)) throw new Error('MAX user id exceeds JavaScript safe integer range');
+
+        if (this.membershipChecker) {
+          const isMember = await this.membershipChecker.isMember(message.chatId, recipientId);
+          if (!isMember) {
+            if (this.repository.revokeMembership) {
+              await this.repository.revokeMembership(message.homeId, profile.maxUserId);
+            }
+            break;
+          }
+        }
+
         const reservation = await this.repository.reserveDelivery({
           profileId: profile.id,
           messageId: message.id,

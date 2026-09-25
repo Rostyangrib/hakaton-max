@@ -261,4 +261,21 @@ describe('message pipeline', () => {
     expect(repo.upsertCreated).toHaveBeenCalledWith('home-uuid-2002', expect.anything(), expect.anything(), expect.anything());
     expect(repo.findAlertProfiles).toHaveBeenCalledWith('home-uuid-2002', 10n);
   });
+
+  it('suppresses alert delivery and revokes membership when membershipChecker reports resident has left the chat', async () => {
+    const revokeMembership = vi.fn(async () => {});
+    const repo = {
+      ...repository(),
+      revokeMembership,
+    };
+    const privateApi = { sendMessageToUser: vi.fn(async () => ({})) };
+    const membershipChecker = { isMember: vi.fn(async () => false) };
+    const pipeline = new MessagePipeline(repo, privateApi, null, 15, membershipChecker);
+
+    expect(await pipeline.handle(createdUpdate('Хозяин кв. 54, труба течет', 777))).toBe(true);
+    expect(membershipChecker.isMember).toHaveBeenCalledWith(777, 42);
+    expect(revokeMembership).toHaveBeenCalledWith('home-uuid', 42n);
+    expect(privateApi.sendMessageToUser).not.toHaveBeenCalled();
+    expect(repo.reserveDelivery).not.toHaveBeenCalled();
+  });
 });

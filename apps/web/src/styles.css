@@ -645,6 +645,13 @@ input, textarea, select {
   margin: 0;
 }
 
+.membership-warning__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
 .membership-warning__btn {
   display: inline-flex;
   align-items: center;
@@ -657,16 +664,25 @@ input, textarea, select {
   font-weight: 600;
   padding: 10px 14px;
   border-radius: 8px;
-  margin-top: 4px;
   border: none;
   cursor: pointer;
-  width: 100%;
+  flex: 1 1 auto;
   box-sizing: border-box;
   transition: background-color 0.15s ease;
 }
 
 .membership-warning__btn:hover {
   background-color: #128EBC;
+}
+
+.membership-warning__btn--secondary {
+  background-color: transparent;
+  color: #7A5200;
+  border: 1px solid #F3AE0D;
+}
+
+.membership-warning__btn--secondary:hover {
+  background-color: #FFF2CC;
 }
 
 /* Browser fallback for direct web testing */

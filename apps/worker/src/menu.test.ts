@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { createWelcomeKeyboard, welcomeText } from './menu.js';
+import { createSummaryButtons, createSummaryKeyboard, createWelcomeKeyboard, welcomeText } from './menu.js';
 
 describe('private welcome menu', () => {
   it('contains profile and three summary actions and states that notifications are private', () => {
@@ -20,5 +20,19 @@ describe('private welcome menu', () => {
       expect.objectContaining({ type: 'open_app', text: 'Открыть профиль', web_app: 'se14396800_bot', contact_id: 434706322 }),
     ]));
     expect(keyboard.payload.buttons.flat().some((b) => 'text' in b && b.text === 'Заполнить профиль')).toBe(false);
+  });
+
+  it('creates summary buttons with homeId suffix and change home button when requested', () => {
+    const buttons = createSummaryButtons('home-123', true);
+    const flat = buttons.flat();
+    expect(flat).toEqual(expect.arrayContaining([
+      { type: 'callback', text: '📅 Сегодня', payload: 'summary:today:home-123' },
+      { type: 'callback', text: '📆 7 дней', payload: 'summary:week:home-123' },
+      { type: 'callback', text: '🗓️ 30 дней', payload: 'summary:month:home-123' },
+      { type: 'callback', text: '🏠 Сменить дом', payload: 'summary:choose_home' },
+    ]));
+
+    const keyboard = createSummaryKeyboard('home-123', false);
+    expect(keyboard.payload.buttons.flat().some((b) => b.text === '🏠 Сменить дом')).toBe(false);
   });
 });

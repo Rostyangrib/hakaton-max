@@ -118,7 +118,55 @@ describe('SummaryService', () => {
     // With homeId: generates summary for the specified home
     const result = await service.generate(42n, 'today', 'home-2');
     expect(result.mode).toBe('yandexgpt');
+    expect(result.homeTitle).toBe('ЖК Южный');
     expect(repo.findHomeById).toHaveBeenCalledWith('home-2', 42n);
     expect(repo.createJob).toHaveBeenCalledWith(expect.objectContaining({ homeId: 'home-2' }));
+  });
+
+  it('restores membership in repository when user has membershipVerifiedAt=null but JIT check finds them in chat', async () => {
+    const verifyMembership = vi.fn(async () => {});
+    const repo = repository({
+      findHomeForResident: vi.fn(async () => ({
+        id: 'home-1',
+        timezone: 'Asia/Irkutsk',
+        maxChatId: 777n,
+        title: 'ЖК Уютный',
+        membershipVerifiedAt: null,
+      })),
+      verifyMembership,
+    });
+    const membershipChecker = { isMember: vi.fn(async () => true) };
+    const model = { summarize: vi.fn(async () => ({ housing: [], yard: [], community: [] })) };
+    const service = new SummaryService(repo, model, 777n, 600, () => now, membershipChecker);
+
+    const result = await service.generate(42n, 'today');
+    expect(result.mode).toBe('yandexgpt');
+    expect(result.homeTitle).toBe('ЖК Уютный');
+    expect(verifyMembership).toHaveBeenCalledWith('home-1', 42n);
+  });
+
+  it('throws LEFT_CHAT when membershipVerifiedAt is null and no membershipChecker is available', async () => {
+    const repo = repository({
+      findHomeForResident: vi.fn(async () => ({
+        id: 'home-1',
+        timezone: 'Asia/Irkutsk',
+        maxChatId: 777n,
+        title: 'ЖК Уютный',
+        chatUrl: 'https://max.ru/chat-uyut',
+        membershipVerifiedAt: null,
+      })),
+    });
+    const service = new SummaryService(repo, null, 777n, 600, () => now);
+
+    try {
+      await service.generate(42n, 'today');
+      expect.fail('Expected SummaryAccessError');
+    } catch (err) {
+      expect(err).toBeInstanceOf(SummaryAccessError);
+      const accessErr = err as SummaryAccessError;
+      expect(accessErr.code).toBe('LEFT_CHAT');
+      expect(accessErr.homeTitle).toBe('ЖК Уютный');
+      expect(accessErr.homeChatUrl).toBe('https://max.ru/chat-uyut');
+    }
   });
 });

@@ -12,7 +12,14 @@ const persistence = createPersistence(database.db);
 const bot = config.MAX_BOT_TOKEN ? new Bot(config.MAX_BOT_TOKEN) : null;
 class CachedMembership implements MembershipService {
   private readonly cache = new Map<string, { isMember: boolean; expiresAt: number }>();
-  constructor(private readonly ttlMs: number = 30_000) {}
+  constructor(
+    private readonly positiveTtlMs: number = 30_000,
+    private readonly negativeTtlMs: number = 5_000,
+  ) {}
+
+  invalidate(maxChatId: number, maxUserId: number): void {
+    this.cache.delete(`${maxChatId}:${maxUserId}`);
+  }
 
   async isMember(maxChatId: number, maxUserId: number): Promise<boolean> {
     const key = `${maxChatId}:${maxUserId}`;
@@ -25,7 +32,8 @@ class CachedMembership implements MembershipService {
     try {
       const response = await bot.api.getChatMembers(maxChatId, { user_ids: [maxUserId] });
       const isMember = response.members.some((member: { user_id?: number; id?: number }) => (member.user_id ?? member.id) === maxUserId);
-      this.cache.set(key, { isMember, expiresAt: now + this.ttlMs });
+      const ttl = isMember ? this.positiveTtlMs : this.negativeTtlMs;
+      this.cache.set(key, { isMember, expiresAt: now + ttl });
       return isMember;
     } catch {
       return false;

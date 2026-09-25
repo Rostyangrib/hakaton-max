@@ -7,7 +7,7 @@ import {
   readUser,
   type SummaryBotApi,
 } from './summary-callback-handler.js';
-import { SummaryAccessError } from './summary-service.js';
+import { MultipleHomesChoiceError, SummaryAccessError } from './summary-service.js';
 
 function createMockUpdate(payload = 'summary:today', userId = 215608884) {
   return {
@@ -338,6 +338,116 @@ describe('SummaryCallbackHandler', () => {
     // Status message must be deleted so no ghost message remains in chat
     expect(botApi.deleteMessage).toHaveBeenCalledWith('mid-status-err');
     expect(handler.getPendingStatusMid(215608884)).toBeUndefined();
+  });
+
+  it('renders house choice buttons when MultipleHomesChoiceError is thrown', async () => {
+    const botApi: SummaryBotApi = {
+      answerOnCallback: vi.fn().mockResolvedValue({ success: true }),
+      sendMessageToUser: vi.fn().mockResolvedValue({ body: { mid: 'mid-status-1' } }),
+      editMessage: vi.fn().mockResolvedValue({ success: true }),
+      deleteMessage: vi.fn(),
+    };
+    const summaryService = {
+      generate: vi.fn().mockRejectedValue(new MultipleHomesChoiceError([
+        { id: 'home-alpha', timezone: 'Asia/Irkutsk', title: 'ЖК Альфа' },
+        { id: 'home-beta', timezone: 'Asia/Irkutsk', title: 'ЖК Бета' },
+      ])),
+    };
+
+    const handler = new SummaryCallbackHandler({ botApi, summaryService });
+    await handler.handle(createMockUpdate('summary:today'));
+
+    expect(botApi.editMessage).toHaveBeenCalledWith('mid-status-1', expect.objectContaining({
+      text: expect.stringContaining('нескольких домах'),
+      attachments: expect.arrayContaining([
+        expect.objectContaining({
+          type: 'inline_keyboard',
+          payload: expect.objectContaining({
+            buttons: [
+              [expect.objectContaining({ text: 'ЖК Альфа', payload: 'summary:today:home-alpha' })],
+              [expect.objectContaining({ text: 'ЖК Бета', payload: 'summary:today:home-beta' })],
+            ],
+          }),
+        }),
+      ]),
+    }));
+  });
+
+  it('handles summary:choose_home callback and shows user houses', async () => {
+    const botApi: SummaryBotApi = {
+      answerOnCallback: vi.fn().mockResolvedValue({ success: true }),
+      sendMessageToUser: vi.fn().mockResolvedValue({ body: { mid: 'mid-1' } }),
+      editMessage: vi.fn(),
+      deleteMessage: vi.fn(),
+    };
+    const summaryService = {
+      generate: vi.fn(),
+      findHomesForResident: vi.fn().mockResolvedValue([
+        { id: 'home-1', timezone: 'Asia/Irkutsk', title: 'Дом 1' },
+        { id: 'home-2', timezone: 'Asia/Irkutsk', title: 'Дом 2' },
+      ]),
+    };
+
+    const handler = new SummaryCallbackHandler({ botApi, summaryService });
+    const handled = await handler.handle(createMockUpdate('summary:choose_home'));
+
+    expect(handled).toBe(true);
+    expect(botApi.answerOnCallback).toHaveBeenCalled();
+    expect(botApi.sendMessageToUser).toHaveBeenCalledWith(215608884, expect.stringContaining('Выберите дом'), expect.objectContaining({
+      attachments: expect.arrayContaining([
+        expect.objectContaining({
+          type: 'inline_keyboard',
+          payload: expect.objectContaining({
+            buttons: [
+              [expect.objectContaining({ text: 'Дом 1', payload: 'summary:today:home-1' })],
+              [expect.objectContaining({ text: 'Дом 2', payload: 'summary:today:home-2' })],
+            ],
+          }),
+        }),
+      ]),
+    }));
+  });
+
+  it('handles LEFT_CHAT error with localized name and direct join link button', async () => {
+    const botApi: SummaryBotApi = {
+      answerOnCallback: vi.fn().mockResolvedValue({ success: true }),
+      sendMessageToUser: vi.fn().mockResolvedValue({ body: { mid: 'mid-status-2' } }),
+      editMessage: vi.fn().mockResolvedValue({ success: true }),
+      deleteMessage: vi.fn(),
+    };
+    const summaryService = {
+      generate: vi.fn().mockRejectedValue(new SummaryAccessError(
+        'Пользователь не состоит в чате',
+        'LEFT_CHAT',
+        'ЖК Уютный',
+        'https://max.ru/chat-uyut',
+      )),
+    };
+    const getWelcomeKeyboard = vi.fn().mockReturnValue({
+      type: 'inline_keyboard',
+      payload: { buttons: [[{ type: 'open_app', text: 'Открыть профиль' }]] },
+    });
+
+    const handler = new SummaryCallbackHandler({
+      botApi,
+      summaryService,
+      getWelcomeKeyboard,
+    });
+    await handler.handle(createMockUpdate('summary:today'));
+
+    expect(botApi.editMessage).toHaveBeenCalledWith('mid-status-2', expect.objectContaining({
+      text: expect.stringContaining('Вы больше не состоите в домовом чате «ЖК Уютный»'),
+      attachments: expect.arrayContaining([
+        expect.objectContaining({
+          type: 'inline_keyboard',
+          payload: expect.objectContaining({
+            buttons: expect.arrayContaining([
+              [expect.objectContaining({ type: 'link', text: 'Вступить в домовой чат', url: 'https://max.ru/chat-uyut' })],
+            ]),
+          }),
+        }),
+      ]),
+    }));
   });
 });
 

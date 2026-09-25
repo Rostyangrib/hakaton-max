@@ -36,7 +36,7 @@ export function createPersistence(db: Database): ProfileStore & WebhookInbox {
       .from(residentProfiles)
       .where(and(eq(residentProfiles.maxUserId, maxUserId), eq(residentProfiles.homeId, homeId)))
       .limit(1);
-    if (!profile || !profile.membershipVerifiedAt) return null;
+    if (!profile) return null;
 
     const properties = profile.properties && profile.properties.length > 0
       ? profile.properties
@@ -65,7 +65,7 @@ export function createPersistence(db: Database): ProfileStore & WebhookInbox {
       properties,
       vehicles,
       alertsEnabled: profile.alertsEnabled,
-      membershipVerifiedAt: profile.membershipVerifiedAt.toISOString(),
+      membershipVerifiedAt: profile.membershipVerifiedAt ? profile.membershipVerifiedAt.toISOString() : null,
       updatedAt: profile.updatedAt.toISOString(),
     };
   }
@@ -173,6 +173,14 @@ export function createPersistence(db: Database): ProfileStore & WebhookInbox {
         .where(eq(homes.maxChatId, maxChatId))
         .limit(1);
       return home ?? null;
+    },
+    async verifyMembership(maxUserId, maxChatId) {
+      const homeId = await findHomeId(maxChatId);
+      if (!homeId) return;
+      await db
+        .update(residentProfiles)
+        .set({ membershipVerifiedAt: new Date(), updatedAt: new Date() })
+        .where(and(eq(residentProfiles.maxUserId, maxUserId), eq(residentProfiles.homeId, homeId)));
     },
     async enqueue(eventKey: string, update: MaxUpdate) {
       const inserted = await db

@@ -154,6 +154,14 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
       fail(reply, 401, request.id, 'UNAUTHORIZED', 'MAX session is missing or expired');
       return null;
     }
+    if (requestedChatId) {
+      const maxChatIdNumber = Number(requestedChatId);
+      if (!Number.isSafeInteger(maxChatIdNumber) || !/^-?\d+$/.test(requestedChatId)) {
+        fail(reply, 400, request.id, 'INVALID_CHAT_ID', 'Requested chatId is invalid');
+        return null;
+      }
+      return { maxUserId, maxChatId: BigInt(requestedChatId), maxChatIdNumber };
+    }
     try {
       const maxChatIdNumber = Number(chatId);
       if (!Number.isSafeInteger(maxChatIdNumber)) throw new Error('unsafe chat id');
@@ -168,6 +176,9 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     const context = await profileContext(request, reply);
     if (!context || reply.sent) return;
     const maxUserIdNumber = Number(context.maxUserId);
+    if ((request.query as { refresh?: string })?.refresh === '1') {
+      dependencies.services!.membership.invalidate?.(context.maxChatIdNumber, maxUserIdNumber);
+    }
     const isMember = Number.isSafeInteger(maxUserIdNumber)
       ? await dependencies.services!.membership.isMember(context.maxChatIdNumber, maxUserIdNumber)
       : false;
@@ -190,6 +201,10 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     if (!homeChatTitle) homeChatTitle = 'Домовой чат';
 
     const profile = await dependencies.services!.profiles.getProfile(context.maxUserId, context.maxChatId);
+    if (isMember && profile && !profile.membershipVerifiedAt && dependencies.services!.profiles.verifyMembership) {
+      await dependencies.services!.profiles.verifyMembership(context.maxUserId, context.maxChatId);
+    }
+
     return reply.code(200).send(envelope(request.id, {
       profile,
       isMember,
@@ -207,6 +222,7 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
 
     const maxUserIdNumber = Number(context.maxUserId);
     if (!Number.isSafeInteger(maxUserIdNumber)) return fail(reply, 400, request.id, 'INVALID_USER_ID', 'MAX user id is invalid');
+    dependencies.services!.membership.invalidate?.(context.maxChatIdNumber, maxUserIdNumber);
     const member = await dependencies.services!.membership.isMember(context.maxChatIdNumber, maxUserIdNumber);
     if (!member) {
       const homeInDb = dependencies.services!.profiles.getHome

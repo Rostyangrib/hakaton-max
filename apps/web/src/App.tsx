@@ -104,12 +104,71 @@ export function App() {
   const [isMember, setIsMember] = useState<boolean | null>(null);
   const [homeChatTitle, setHomeChatTitle] = useState('Домовой чат');
   const [homeChatUrl, setHomeChatUrl] = useState<string | null>(null);
+  const [chatId, setChatId] = useState<string | null>(null);
+  const [checkingMembership, setCheckingMembership] = useState(false);
+  const [isDemoMode, setIsDemoMode] = useState(false);
+
+  async function loadProfile(targetChatId: string | null = chatId, forceRefresh = false) {
+    const params = new URLSearchParams();
+    if (targetChatId) params.set('chatId', targetChatId);
+    if (forceRefresh) params.set('refresh', '1');
+    const qs = params.toString() ? `?${params.toString()}` : '';
+
+    const res = await api<ProfileResponse | (ResidentProfile & { isMember?: boolean; homeChatTitle?: string; homeChatUrl?: string })>(`/api/profile${qs}`);
+    const profile = res && 'profile' in res && res.profile !== undefined ? res.profile : (res as ResidentProfile | null);
+    const memberStatus = typeof res?.isMember === 'boolean' ? res.isMember : true;
+    setIsMember(memberStatus);
+    if (res?.homeChatTitle) setHomeChatTitle(res.homeChatTitle);
+    if (res?.homeChatUrl) setHomeChatUrl(res.homeChatUrl);
+
+    setForm(fromProfile(profile));
+    setPhase('ready');
+    if (!memberStatus) {
+      setMessage(`Для работы бота необходимо вступить в чат «${res?.homeChatTitle || 'Домовой чат'}»`);
+    } else {
+      setMessage(profile ? 'Профиль заполнен' : 'Заполните данные для персональных уведомлений');
+    }
+  }
+
+  async function checkMembership(forceRefresh = true) {
+    if (phase === 'loading' || phase === 'saving') return;
+    setCheckingMembership(true);
+    try {
+      if (isDemoMode) {
+        setIsMember(true);
+        setMessage('Членство подтверждено (демо-режим)');
+        setPhase('ready');
+        return;
+      }
+      await loadProfile(chatId, forceRefresh);
+    } catch {
+      // ignore
+    } finally {
+      setCheckingMembership(false);
+    }
+  }
+
+  useEffect(() => {
+    function handleVisibility() {
+      if (document.visibilityState === 'visible' && isMember === false) {
+        void checkMembership(true);
+      }
+    }
+    window.addEventListener('focus', handleVisibility);
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      window.removeEventListener('focus', handleVisibility);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [isMember, chatId, isDemoMode]);
 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const hashString = window.location.hash.replace(/^#/, '');
     const hashParams = new URLSearchParams(hashString);
     const token = urlParams.get('token') || hashParams.get('token');
+    const resolvedChatId = urlParams.get('chat_id') || urlParams.get('chatId') || hashParams.get('chat_id') || hashParams.get('chatId');
+    if (resolvedChatId) setChatId(resolvedChatId);
 
     const bridge = window.WebApp;
     bridge?.ready?.();
@@ -125,6 +184,7 @@ export function App() {
 
     const isDemo = urlParams.get('demo') === '1' || hashParams.get('demo') === '1';
     if (isDemo) {
+      setIsDemoMode(true);
       setDisplayName('Ростислав Затопляев');
       setForm({
         apartment: '54',
@@ -166,20 +226,7 @@ export function App() {
           setSessionToken(auth.sessionToken);
           setDisplayName(auth.displayName);
         }
-        const res = await api<ProfileResponse | (ResidentProfile & { isMember?: boolean; homeChatTitle?: string; homeChatUrl?: string })>('/api/profile');
-        const profile = res && 'profile' in res && res.profile !== undefined ? res.profile : (res as ResidentProfile | null);
-        const memberStatus = typeof res?.isMember === 'boolean' ? res.isMember : true;
-        setIsMember(memberStatus);
-        if (res?.homeChatTitle) setHomeChatTitle(res.homeChatTitle);
-        if (res?.homeChatUrl) setHomeChatUrl(res.homeChatUrl);
-
-        setForm(fromProfile(profile));
-        setPhase('ready');
-        if (!memberStatus) {
-          setMessage(`Для работы бота необходимо вступить в чат «${res?.homeChatTitle || 'Домовой чат'}»`);
-        } else {
-          setMessage(profile ? 'Профиль заполнен' : 'Заполните данные для персональных уведомлений');
-        }
+        await loadProfile(resolvedChatId, false);
       } catch (error) {
         activeSessionToken = null;
         try {
@@ -236,7 +283,11 @@ export function App() {
       const primaryPlate = validVehicles.find((v) => v.plate.trim())?.plate.trim() || null;
       const primaryDesc = validVehicles.find((v) => v.description.trim())?.description.trim() || null;
 
-      const profile = await api<ResidentProfile>('/api/profile', {
+      const params = new URLSearchParams();
+      if (chatId) params.set('chatId', chatId);
+      const qs = params.toString() ? `?${params.toString()}` : '';
+
+      const profile = await api<ResidentProfile>(`/api/profile${qs}`, {
         method: 'PUT',
         body: JSON.stringify({
           apartment: Number(form.apartment || 1),
@@ -377,16 +428,26 @@ export function App() {
             <p className="membership-warning__text">
               Чтобы QuietChat мог присылать вам персональные уведомления и сводки по дому «{homeChatTitle}», необходимо вступить в домовой чат.
             </p>
-            {homeChatUrl && (
-              <a
-                href={homeChatUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="membership-warning__btn"
+            <div className="membership-warning__actions">
+              {homeChatUrl && (
+                <a
+                  href={homeChatUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="membership-warning__btn"
+                >
+                  Вступить в домовой чат
+                </a>
+              )}
+              <button
+                type="button"
+                className="membership-warning__btn membership-warning__btn--secondary"
+                onClick={() => void checkMembership(true)}
+                disabled={checkingMembership}
               >
-                Вступить в домовой чат
-              </a>
-            )}
+                {checkingMembership ? 'Проверяем…' : '🔄 Проверить статус'}
+              </button>
+            </div>
           </aside>
         )}
 

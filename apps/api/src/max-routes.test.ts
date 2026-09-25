@@ -161,6 +161,61 @@ describe('profile routes', () => {
     expect(putRes.json().error.message).toContain('Вы не являетесь участником домового чата');
     expect(putRes.json().error.message).toContain('ЖК Тихий Дом');
   });
+
+  it('rejects invalid chatId query parameters with 400 Bad Request', async () => {
+    const app = await buildApp({ config: config(), databaseCheck: async () => {}, services: services() });
+    apps.push(app);
+    const cookie = `quietchat_session=${createSession(10n, 'session-secret-with-enough-entropy', 3_600)}`;
+
+    const res = await app.inject({ method: 'GET', url: '/api/profile?chatId=not-a-number', headers: { cookie } });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe('INVALID_CHAT_ID');
+  });
+
+  it('returns saved profile fields with isMember=false when user is not member and auto-verifies when they rejoin', async () => {
+    const verifyMembership = vi.fn(async () => {});
+    const membership = {
+      isMember: vi.fn(async () => false),
+      invalidate: vi.fn(),
+    };
+    const profileServices = services({
+      membership,
+      profiles: {
+        ...services().profiles,
+        getProfile: vi.fn(async () => ({
+          apartment: 54,
+          entrance: 3,
+          floor: 8,
+          carPlate: 'А123ВС77',
+          carDescription: 'Белая Camry',
+          properties: [],
+          vehicles: [],
+          alertsEnabled: true,
+          membershipVerifiedAt: null,
+          updatedAt: new Date().toISOString(),
+        })),
+        verifyMembership,
+      },
+    });
+    const app = await buildApp({ config: config(), databaseCheck: async () => {}, services: profileServices });
+    apps.push(app);
+    const cookie = `quietchat_session=${createSession(10n, 'session-secret-with-enough-entropy', 3_600)}`;
+
+    // 1. User not in chat: returns saved profile data + isMember: false
+    const res1 = await app.inject({ method: 'GET', url: '/api/profile?refresh=1', headers: { cookie } });
+    expect(res1.statusCode).toBe(200);
+    expect(res1.json().data.apartment).toBe(54);
+    expect(res1.json().data.isMember).toBe(false);
+    expect(verifyMembership).not.toHaveBeenCalled();
+    expect(membership.invalidate).toHaveBeenCalled();
+
+    // 2. User rejoins chat: isMember becomes true, auto-verifies membership
+    membership.isMember.mockResolvedValue(true);
+    const res2 = await app.inject({ method: 'GET', url: '/api/profile', headers: { cookie } });
+    expect(res2.statusCode).toBe(200);
+    expect(res2.json().data.isMember).toBe(true);
+    expect(verifyMembership).toHaveBeenCalledWith(10n, 777n);
+  });
 });
 
 describe('MAX initData auth route', () => {

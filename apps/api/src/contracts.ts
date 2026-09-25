@@ -12,6 +12,7 @@ export interface ProfileStore {
   deleteProfile(maxUserId: bigint, maxChatId: bigint): Promise<boolean>;
   getUser?(maxUserId: bigint): Promise<{ displayName: string | null } | null>;
   getHome?(maxChatId: bigint): Promise<{ title: string; chatUrl: string | null } | null>;
+  verifyMembership?(maxUserId: bigint, maxChatId: bigint): Promise<void>;
 }
 
 export interface WebhookInbox {
@@ -21,6 +22,7 @@ export interface WebhookInbox {
 export interface MembershipService {
   isMember(maxChatId: number, maxUserId: number): Promise<boolean>;
   getChatInfo?(maxChatId: number): Promise<{ title: string | null; chatUrl: string | null } | null>;
+  invalidate?(maxChatId: number, maxUserId: number): void;
 }
 
 export interface ApiServices {

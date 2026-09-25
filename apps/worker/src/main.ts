@@ -17,12 +17,34 @@ const config = loadConfig();
 const database = createDatabase(config.DATABASE_URL);
 const bot = config.MAX_BOT_TOKEN ? new Bot(config.MAX_BOT_TOKEN) : null;
 const configuredHomeChatId = Number(config.MAX_HOME_CHAT_ID);
+const membershipCache = new Map<string, { isMember: boolean; expiresAt: number }>();
+const workerMembershipChecker = bot
+  ? {
+      async isMember(maxChatId: number, maxUserId: number) {
+        const key = `${maxChatId}:${maxUserId}`;
+        const cached = membershipCache.get(key);
+        const now = Date.now();
+        if (cached && cached.expiresAt > now) return cached.isMember;
+        try {
+          const response = await bot.api.getChatMembers(maxChatId, { user_ids: [maxUserId] });
+          const isMember = response.members.some((member: { user_id?: number; id?: number }) => (member.user_id ?? member.id) === maxUserId);
+          const ttl = isMember ? 30_000 : 5_000;
+          membershipCache.set(key, { isMember, expiresAt: now + ttl });
+          return isMember;
+        } catch {
+          return false;
+        }
+      },
+    }
+  : null;
+
 const messagePipeline = bot
   ? new MessagePipeline(
       new PostgresMessageRepository(database, config.HOME_TIMEZONE),
       bot.api,
       null,
       config.ALERT_ANTIFLOOD_MINUTES,
+      workerMembershipChecker,
     )
   : null;
 const summaryModel = config.YANDEX_CLOUD_API_KEY && config.YANDEX_CLOUD_FOLDER_ID
@@ -41,26 +63,6 @@ if (!summaryModel) {
     message: 'YandexGPT is not configured (missing YANDEX_CLOUD_API_KEY or YANDEX_CLOUD_FOLDER_ID); summaries will run in fallback mode',
   }));
 }
-
-const membershipCache = new Map<string, { isMember: boolean; expiresAt: number }>();
-const workerMembershipChecker = bot
-  ? {
-      async isMember(maxChatId: number, maxUserId: number) {
-        const key = `${maxChatId}:${maxUserId}`;
-        const cached = membershipCache.get(key);
-        const now = Date.now();
-        if (cached && cached.expiresAt > now) return cached.isMember;
-        try {
-          const response = await bot.api.getChatMembers(maxChatId, { user_ids: [maxUserId] });
-          const isMember = response.members.some((member: { user_id?: number; id?: number }) => (member.user_id ?? member.id) === maxUserId);
-          membershipCache.set(key, { isMember, expiresAt: now + 30_000 });
-          return isMember;
-        } catch {
-          return false;
-        }
-      },
-    }
-  : null;
 
 const summaryRepo = new PostgresSummaryRepository(database);
 const summaryService = bot && Number.isSafeInteger(configuredHomeChatId)
@@ -261,7 +263,7 @@ async function processUpdate(payload: unknown): Promise<void> {
 
   if (parsed.update_type === 'user_removed') {
     const user = readUser(parsed.user);
-    const chatId = parsed.chat_id;
+    const chatId = typeof parsed.chat_id === 'string' ? Number(parsed.chat_id) : parsed.chat_id;
     if (user && typeof chatId === 'number' && Number.isSafeInteger(chatId)) {
       membershipCache.delete(`${chatId}:${user.user_id}`);
       await summaryRepo.revokeMembershipByChatId(BigInt(chatId), BigInt(user.user_id));
@@ -272,6 +274,28 @@ async function processUpdate(payload: unknown): Promise<void> {
           await bot.api.sendMessageToUser(
             user.user_id,
             `Вы покинули чат «${homeTitle}». Доступ к сводкам и персональным оповещениям QuietChat приостановлен.`,
+          );
+        } catch {
+          // ignore notification error
+        }
+      }
+    }
+    return;
+  }
+
+  if (parsed.update_type === 'user_added') {
+    const user = readUser(parsed.user);
+    const chatId = typeof parsed.chat_id === 'string' ? Number(parsed.chat_id) : parsed.chat_id;
+    if (user && typeof chatId === 'number' && Number.isSafeInteger(chatId)) {
+      membershipCache.set(`${chatId}:${user.user_id}`, { isMember: true, expiresAt: Date.now() + 30_000 });
+      await summaryRepo.verifyMembershipByChatId(BigInt(chatId), BigInt(user.user_id));
+      if (bot) {
+        try {
+          const [home] = await database.db.select({ title: homes.title }).from(homes).where(eq(homes.maxChatId, BigInt(chatId))).limit(1);
+          const homeTitle = home?.title || 'домового чата';
+          await bot.api.sendMessageToUser(
+            user.user_id,
+            `Вы вступили в чат «${homeTitle}». Доступ к персонализированным сводкам и уведомлениям QuietChat активен!`,
           );
         } catch {
           // ignore notification error

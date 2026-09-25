@@ -36,11 +36,21 @@ export class PostgresMessageRepository implements MessageRepository {
   async ensureHome(maxChatId: bigint): Promise<string> {
     await this.database.db
       .insert(homes)
-      .values({ maxChatId, title: 'Тестовый дом', timezone: this.homeTimezone })
+      .values({ maxChatId, title: 'Домовой чат', timezone: this.homeTimezone })
       .onConflictDoNothing();
     const [home] = await this.database.db.select({ id: homes.id }).from(homes).where(eq(homes.maxChatId, maxChatId)).limit(1);
     if (!home) throw new Error('Configured home could not be created');
     return home.id;
+  }
+
+  async revokeMembership(homeId: string, maxUserId: bigint): Promise<void> {
+    await this.database.db
+      .update(residentProfiles)
+      .set({ membershipVerifiedAt: null, updatedAt: new Date() })
+      .where(and(
+        eq(residentProfiles.homeId, homeId),
+        eq(residentProfiles.maxUserId, maxUserId),
+      ));
   }
 
   async upsertCreated(

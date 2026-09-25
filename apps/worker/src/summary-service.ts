@@ -13,7 +13,9 @@ export interface SummaryHome {
   timezone: string;
   apartment?: number;
   title?: string;
+  chatUrl?: string | null;
   maxChatId?: bigint;
+  membershipVerifiedAt?: Date | null;
 }
 
 export interface SummaryRepository {
@@ -21,6 +23,7 @@ export interface SummaryRepository {
   findHomesForResident?(maxUserId: bigint): Promise<SummaryHome[]>;
   findHomeById?(homeId: string, maxUserId: bigint): Promise<SummaryHome | null>;
   revokeMembership?(homeId: string, maxUserId: bigint): Promise<void>;
+  verifyMembership?(homeId: string, maxUserId: bigint): Promise<void>;
   findCached(homeId: string, maxUserId: bigint, period: SummaryPeriod, createdAfter: Date): Promise<SummaryResult | null>;
   listMessages(homeId: string, from: Date, to: Date): Promise<SummarySourceMessage[]>;
   createJob(input: { homeId: string; requestedBy: bigint; from: Date; to: Date; messageCount: number }): Promise<string>;
@@ -40,6 +43,7 @@ export class SummaryAccessError extends Error {
     message: string = 'Access denied',
     public readonly code: 'NOT_REGISTERED' | 'LEFT_CHAT' = 'NOT_REGISTERED',
     public readonly homeTitle?: string,
+    public readonly homeChatUrl?: string | null,
   ) {
     super(message);
     this.name = 'SummaryAccessError';
@@ -102,8 +106,19 @@ export class SummaryService {
           `Пользователь не состоит в чате «${home.title || 'Домовой чат'}»`,
           'LEFT_CHAT',
           home.title,
+          home.chatUrl,
         );
       }
+      if (!home.membershipVerifiedAt && this.repository.verifyMembership) {
+        await this.repository.verifyMembership(home.id, maxUserId);
+      }
+    } else if (home.membershipVerifiedAt === null) {
+      throw new SummaryAccessError(
+        `Пользователь не состоит в чате «${home.title || 'Домовой чат'}»`,
+        'LEFT_CHAT',
+        home.title,
+        home.chatUrl,
+      );
     }
 
     const now = this.now();
@@ -157,6 +172,7 @@ export class SummaryService {
       generatedAt: now.toISOString(),
       mode,
       cached: false,
+      homeTitle: home.title,
     };
     await this.repository.completeJob(jobId, mode, result, error);
     return result;
