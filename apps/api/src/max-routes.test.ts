@@ -216,6 +216,74 @@ describe('profile routes', () => {
     expect(res2.json().data.isMember).toBe(true);
     expect(verifyMembership).toHaveBeenCalledWith(10n, 777n);
   });
+
+  it('returns availableHomes and handles null profile without undefined strings', async () => {
+    const profileServices = services({
+      profiles: {
+        ...services().profiles,
+        getProfile: vi.fn(async () => null),
+        getActiveHomes: vi.fn(async () => [
+          { maxChatId: 777n, title: 'Тестовый дом 1', chatUrl: 'https://max.ru/chat1' },
+          { maxChatId: 888n, title: 'Тестовый дом 2', chatUrl: 'https://max.ru/chat2' },
+        ]),
+      },
+      membership: {
+        isMember: vi.fn(async (chatId: number) => chatId === 777),
+      },
+    });
+    const app = await buildApp({ config: config(), databaseCheck: async () => {}, services: profileServices });
+    apps.push(app);
+    const cookie = `quietchat_session=${createSession(10n, 'session-secret-with-enough-entropy', 3_600)}`;
+
+    const res = await app.inject({ method: 'GET', url: '/api/profile', headers: { cookie } });
+    expect(res.statusCode).toBe(200);
+    const data = res.json().data;
+    expect(data.profile).toBeNull();
+    expect(data.apartment).toBeUndefined(); // null profile should not spread undefined fields as strings
+    expect(data.availableHomes).toHaveLength(2);
+    expect(data.availableHomes[0]).toEqual({
+      chatId: '777',
+      title: 'Тестовый дом 1',
+      isMember: true,
+      chatUrl: 'https://max.ru/chat1',
+    });
+    expect(data.availableHomes[1]).toEqual({
+      chatId: '888',
+      title: 'Тестовый дом 2',
+      isMember: false,
+      chatUrl: 'https://max.ru/chat2',
+    });
+  });
+
+  it('saves profile for specific chatId provided in body or query', async () => {
+    const saveProfile = vi.fn(async (_userId: bigint, _chatId: bigint, input: ResidentProfileInput, verifiedAt: Date): Promise<ResidentProfile> => ({
+      ...input,
+      properties: input.properties ?? [],
+      vehicles: input.vehicles ?? [],
+      floor: input.floor ?? null,
+      carPlate: input.carPlate ?? null,
+      carDescription: input.carDescription ?? null,
+      membershipVerifiedAt: verifiedAt.toISOString(),
+      updatedAt: verifiedAt.toISOString(),
+    }));
+    const profileServices = services({
+      profiles: {
+        ...services().profiles,
+        saveProfile,
+      },
+      membership: {
+        isMember: vi.fn(async () => true),
+      },
+    });
+    const app = await buildApp({ config: config(), databaseCheck: async () => {}, services: profileServices });
+    apps.push(app);
+    const cookie = `quietchat_session=${createSession(10n, 'session-secret-with-enough-entropy', 3_600)}`;
+
+    const payload = { chatId: '888', apartment: 101, entrance: 2, floor: 5, alertsEnabled: true };
+    const saved = await app.inject({ method: 'PUT', url: '/api/profile', headers: { cookie }, payload });
+    expect(saved.statusCode).toBe(200);
+    expect(saveProfile).toHaveBeenCalledWith(10n, 888n, expect.objectContaining({ apartment: 101 }), expect.any(Date));
+  });
 });
 
 describe('MAX initData auth route', () => {

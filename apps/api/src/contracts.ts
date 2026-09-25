@@ -12,6 +12,7 @@ export interface ProfileStore {
   deleteProfile(maxUserId: bigint, maxChatId: bigint): Promise<boolean>;
   getUser?(maxUserId: bigint): Promise<{ displayName: string | null } | null>;
   getHome?(maxChatId: bigint): Promise<{ title: string; chatUrl: string | null } | null>;
+  getActiveHomes?(): Promise<Array<{ maxChatId: bigint; title: string; chatUrl: string | null }>>;
   verifyMembership?(maxUserId: bigint, maxChatId: bigint): Promise<void>;
 }
 

@@ -174,6 +174,12 @@ export function createPersistence(db: Database): ProfileStore & WebhookInbox {
         .limit(1);
       return home ?? null;
     },
+    async getActiveHomes() {
+      return db
+        .select({ maxChatId: homes.maxChatId, title: homes.title, chatUrl: homes.chatUrl })
+        .from(homes)
+        .where(eq(homes.isActive, true));
+    },
     async verifyMembership(maxUserId, maxChatId) {
       const homeId = await findHomeId(maxChatId);
       if (!homeId) return;

@@ -707,6 +707,106 @@ input, textarea, select {
   background-color: #128EBC;
 }
 
+/* Home Selector / Multi-Chat Switcher */
+.home-selector {
+  margin-bottom: 16px;
+  background-color: #F0F7FA;
+  border: 1px solid #D5E7EE;
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.home-selector__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 8px;
+}
+
+.home-selector__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #050B25;
+}
+
+.home-selector__hint {
+  font-size: 11px;
+  color: #738B9D;
+}
+
+.home-tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.home-tabs::-webkit-scrollbar {
+  height: 4px;
+}
+
+.home-tabs::-webkit-scrollbar-thumb {
+  background-color: #B1D3DC;
+  border-radius: 4px;
+}
+
+.home-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1px solid #C4DDE7;
+  background-color: #FFFFFF;
+  color: #050B25;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.home-tab:hover {
+  background-color: #E6F3F7;
+  border-color: #188DB5;
+}
+
+.home-tab--active {
+  background-color: #188DB5;
+  border-color: #188DB5;
+  color: #FFFFFF;
+  font-weight: 600;
+  box-shadow: 0 2px 6px rgba(24, 141, 181, 0.25);
+}
+
+.home-tab--active:hover {
+  background-color: #128EBC;
+  border-color: #128EBC;
+}
+
+.home-tab__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.home-tab__badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background-color: #FEF3C7;
+  color: #92400E;
+  margin-left: 2px;
+}
+
+.home-tab--active .home-tab__badge {
+  background-color: rgba(255, 255, 255, 0.25);
+  color: #FFFFFF;
+}
+
 /* Responsive adjustments */
 @media (max-width: 360px) {
   .page {

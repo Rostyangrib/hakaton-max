@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 
-import type { ApiEnvelope, ProfileResponse, ResidentProfile } from '@quiet-chat/shared';
+import type { ApiEnvelope, AvailableHome, ProfileResponse, ResidentProfile } from '@quiet-chat/shared';
 
 const apiBaseUrl = import.meta.env.VITE_API_URL ?? '';
 
@@ -71,7 +71,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return (payload as ApiEnvelope<T>).data as T;
 }
 
-function fromProfile(profile: ResidentProfile | null): FormState {
+export function fromProfile(profile: ResidentProfile | null | undefined): FormState {
   if (!profile) return emptyForm;
 
   const vehicles: VehicleState[] =
@@ -88,11 +88,11 @@ function fromProfile(profile: ResidentProfile | null): FormState {
         ];
 
   return {
-    apartment: String(profile.apartment),
-    entrance: String(profile.entrance),
-    floor: profile.floor === null || profile.floor === undefined ? '' : String(profile.floor),
-    vehicles,
-    alertsEnabled: profile.alertsEnabled,
+    apartment: profile.apartment != null ? String(profile.apartment) : '',
+    entrance: profile.entrance != null ? String(profile.entrance) : '',
+    floor: profile.floor != null ? String(profile.floor) : '',
+    vehicles: vehicles.length > 0 ? vehicles : [{ plate: '', description: '' }],
+    alertsEnabled: profile.alertsEnabled ?? true,
   };
 }
 
@@ -105,6 +105,7 @@ export function App() {
   const [homeChatTitle, setHomeChatTitle] = useState('Домовой чат');
   const [homeChatUrl, setHomeChatUrl] = useState<string | null>(null);
   const [chatId, setChatId] = useState<string | null>(null);
+  const [availableHomes, setAvailableHomes] = useState<AvailableHome[]>([]);
   const [checkingMembership, setCheckingMembership] = useState(false);
   const [isDemoMode, setIsDemoMode] = useState(false);
 
@@ -114,12 +115,20 @@ export function App() {
     if (forceRefresh) params.set('refresh', '1');
     const qs = params.toString() ? `?${params.toString()}` : '';
 
-    const res = await api<ProfileResponse | (ResidentProfile & { isMember?: boolean; homeChatTitle?: string; homeChatUrl?: string })>(`/api/profile${qs}`);
-    const profile = res && 'profile' in res && res.profile !== undefined ? res.profile : (res as ResidentProfile | null);
+    const res = await api<ProfileResponse>(`/api/profile${qs}`);
+    const profile = res && 'profile' in res ? (res.profile ?? null) : null;
     const memberStatus = typeof res?.isMember === 'boolean' ? res.isMember : true;
     setIsMember(memberStatus);
     if (res?.homeChatTitle) setHomeChatTitle(res.homeChatTitle);
     if (res?.homeChatUrl) setHomeChatUrl(res.homeChatUrl);
+    if (res?.availableHomes && res.availableHomes.length > 0) {
+      setAvailableHomes(res.availableHomes);
+    }
+    if (targetChatId) setChatId(targetChatId);
+    else if (res?.availableHomes && res.availableHomes.length > 0 && !chatId) {
+      const firstChatId = res.availableHomes[0]?.chatId;
+      if (firstChatId) setChatId(firstChatId);
+    }
 
     setForm(fromProfile(profile));
     setPhase('ready');
@@ -127,6 +136,34 @@ export function App() {
       setMessage(`Для работы бота необходимо вступить в чат «${res?.homeChatTitle || 'Домовой чат'}»`);
     } else {
       setMessage(profile ? 'Профиль заполнен' : 'Заполните данные для персональных уведомлений');
+    }
+  }
+
+  async function selectHome(targetChatId: string) {
+    if (targetChatId === chatId || phase === 'saving' || phase === 'loading') return;
+    setChatId(targetChatId);
+    if (isDemoMode) {
+      const selected = availableHomes.find((h) => h.chatId === targetChatId);
+      if (selected) {
+        setHomeChatTitle(selected.title);
+        setIsMember(selected.isMember);
+        if (targetChatId === '-79396775944382') {
+          setForm((c) => ({ ...c, apartment: '', entrance: '', floor: '' }));
+          setMessage('Заполните данные для персональных уведомлений');
+        } else {
+          setForm((c) => ({ ...c, apartment: '54', entrance: '3', floor: '8' }));
+          setMessage('Профиль заполнен');
+        }
+      }
+      return;
+    }
+    setPhase('loading');
+    setMessage('Загрузка данных дома…');
+    try {
+      await loadProfile(targetChatId, false);
+    } catch (error) {
+      setPhase('error');
+      setMessage(error instanceof Error ? error.message : 'Не удалось загрузить данные дома');
     }
   }
 
@@ -186,6 +223,11 @@ export function App() {
     if (isDemo) {
       setIsDemoMode(true);
       setDisplayName('Ростислав Затопляев');
+      setAvailableHomes([
+        { chatId: '-79181109403700', title: 'Тестовый дом', isMember: true },
+        { chatId: '-79396775944382', title: 'Тест 2', isMember: true },
+      ]);
+      setChatId(resolvedChatId || '-79181109403700');
       setForm({
         apartment: '54',
         entrance: '3',
@@ -195,7 +237,7 @@ export function App() {
       });
       const demoNotMember = urlParams.get('not_member') === '1' || hashParams.get('not_member') === '1';
       setIsMember(!demoNotMember);
-      setHomeChatTitle('ЖК «Тихий Дом»');
+      setHomeChatTitle(resolvedChatId === '-79396775944382' ? 'Тест 2' : 'Тестовый дом');
       setHomeChatUrl('https://max.ru/chat-demo');
       setPhase('ready');
       setMessage(demoNotMember ? 'Вступите в чат дома для работы бота' : 'Профиль заполнен');
@@ -279,6 +321,13 @@ export function App() {
     setPhase('saving');
     setMessage('Сохраняем…');
     try {
+      if (isDemoMode) {
+        setTimeout(() => {
+          setPhase('ready');
+          setMessage('Профиль сохранён (демо-режим)');
+        }, 400);
+        return;
+      }
       const validVehicles = form.vehicles.filter((v) => v.plate.trim() || v.description.trim());
       const primaryPlate = validVehicles.find((v) => v.plate.trim())?.plate.trim() || null;
       const primaryDesc = validVehicles.find((v) => v.description.trim())?.description.trim() || null;
@@ -290,6 +339,7 @@ export function App() {
       const profile = await api<ResidentProfile>(`/api/profile${qs}`, {
         method: 'PUT',
         body: JSON.stringify({
+          chatId: chatId || undefined,
           apartment: Number(form.apartment || 1),
           entrance: Number(form.entrance || 1),
           floor: form.floor ? Number(form.floor) : null,
@@ -304,7 +354,7 @@ export function App() {
       });
       setForm(fromProfile(profile));
       setPhase('ready');
-      setMessage('Профиль заполнен');
+      setMessage('Профиль сохранён');
     } catch (error) {
       setPhase('error');
       setMessage(error instanceof Error ? error.message : 'Не удалось сохранить профиль');
@@ -451,7 +501,7 @@ export function App() {
           </aside>
         )}
 
-        {/* Section 01 - Адрес */}
+          {/* Section 01 - Адрес */}
         <section aria-labelledby="section-01-title">
           <div className="section-header">
             <span className="section-number section-number--active">01</span>
@@ -463,6 +513,36 @@ export function App() {
               <span className="section-subtitle">Обязательные данные</span>
             </div>
           </div>
+
+          {availableHomes.length > 1 && (
+            <div className="home-selector" role="region" aria-label="Выбор дома">
+              <div className="home-selector__header">
+                <span className="home-selector__label">Домовой чат</span>
+                <span className="home-selector__hint">Выберите дом для настройки адреса</span>
+              </div>
+              <div className="home-tabs" role="tablist">
+                {availableHomes.map((home) => {
+                  const isCurrent = home.chatId === chatId || (!chatId && home.title === homeChatTitle);
+                  return (
+                    <button
+                      key={home.chatId}
+                      type="button"
+                      role="tab"
+                      aria-selected={isCurrent}
+                      className={`home-tab ${isCurrent ? 'home-tab--active' : ''}`}
+                      onClick={() => void selectHome(home.chatId)}
+                    >
+                      <span className="home-tab__icon" aria-hidden="true">🏠</span>
+                      <span className="home-tab__title">{home.title}</span>
+                      {home.isMember === false && (
+                        <span className="home-tab__badge">Не в чате</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <label className="field">
             <span className="field-label">Квартира</span>

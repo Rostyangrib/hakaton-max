@@ -38,10 +38,22 @@ const workerMembershipChecker = bot
     }
   : null;
 
-const messagePipeline = bot
+const wrappedBotApi = bot
+  ? {
+      ...bot.api,
+      sendMessageToUser: (userId: number, text: string, extra?: unknown) =>
+        bot.api.sendMessageToUser(userId, text, {
+          notify: true,
+          format: 'markdown',
+          ...(typeof extra === 'object' && extra ? (extra as Record<string, unknown>) : {}),
+        }),
+    }
+  : null;
+
+const messagePipeline = wrappedBotApi
   ? new MessagePipeline(
       new PostgresMessageRepository(database, config.HOME_TIMEZONE),
-      bot.api,
+      wrappedBotApi,
       null,
       config.ALERT_ANTIFLOOD_MINUTES,
       workerMembershipChecker,
@@ -210,10 +222,22 @@ async function sendWelcome(user: MaxUserPayload): Promise<void> {
     ? createWelcomeKeyboard(botUsername, directUrl, botContactId)
     : undefined;
   try {
-    await bot.api.sendMessageToUser(user.user_id, welcomeText, keyboard ? { attachments: [keyboard] } : undefined);
+    await bot.api.sendMessageToUser(
+      user.user_id,
+      welcomeText,
+      {
+        notify: true,
+        format: 'markdown',
+        ...(keyboard ? { attachments: [keyboard] } : {}),
+      },
+    );
   } catch (error) {
     if (directUrl) {
-      await bot.api.sendMessageToUser(user.user_id, `${welcomeText}\n\nЗаполнить профиль: ${directUrl}`);
+      await bot.api.sendMessageToUser(
+        user.user_id,
+        `${welcomeText}\n\nЗаполнить профиль: ${directUrl}`,
+        { notify: true, format: 'markdown' },
+      );
       return;
     }
     throw error;
@@ -274,9 +298,17 @@ async function processUpdate(payload: unknown): Promise<void> {
           await bot.api.sendMessageToUser(
             user.user_id,
             `Вы покинули чат «${homeTitle}». Доступ к сводкам и персональным оповещениям QuietChat приостановлен.`,
+            { notify: true, format: 'markdown' },
           );
-        } catch {
-          // ignore notification error
+        } catch (error) {
+          console.warn(JSON.stringify({
+            level: 'warn',
+            service: 'worker',
+            message: 'Failed to send user_removed notification to user',
+            userId: user.user_id,
+            chatId,
+            error: String(error),
+          }));
         }
       }
     }
@@ -296,9 +328,17 @@ async function processUpdate(payload: unknown): Promise<void> {
           await bot.api.sendMessageToUser(
             user.user_id,
             `Вы вступили в чат «${homeTitle}». Доступ к персонализированным сводкам и уведомлениям QuietChat активен!`,
+            { notify: true, format: 'markdown' },
           );
-        } catch {
-          // ignore notification error
+        } catch (error) {
+          console.warn(JSON.stringify({
+            level: 'warn',
+            service: 'worker',
+            message: 'Failed to send user_added notification to user',
+            userId: user.user_id,
+            chatId,
+            error: String(error),
+          }));
         }
       }
     }

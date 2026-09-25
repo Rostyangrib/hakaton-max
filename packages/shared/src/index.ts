@@ -25,6 +25,7 @@ export const propertyItemSchema = z.object({
 });
 
 export const residentProfileInputSchema = z.object({
+  chatId: z.union([z.string(), z.number()]).optional(),
   apartment: z.coerce.number().int().min(1).max(9_999),
   entrance: z.coerce.number().int().min(1).max(999),
   floor: z.coerce.number().int().min(-9).max(999).nullable().optional(),
@@ -45,11 +46,21 @@ export const residentProfileSchema = residentProfileInputSchema.extend({
 export type VehicleItem = z.infer<typeof vehicleItemSchema>;
 export type PropertyItem = z.infer<typeof propertyItemSchema>;
 
+export const availableHomeSchema = z.object({
+  chatId: z.string(),
+  title: z.string(),
+  isMember: z.boolean(),
+  chatUrl: z.string().nullable().optional(),
+});
+
+export type AvailableHome = z.infer<typeof availableHomeSchema>;
+
 export const profileResponseSchema = z.object({
   profile: residentProfileSchema.nullable(),
   isMember: z.boolean(),
   homeChatTitle: z.string().nullable().optional(),
   homeChatUrl: z.string().nullable().optional(),
+  availableHomes: z.array(availableHomeSchema).optional(),
 });
 
 export type ProfileResponse = z.infer<typeof profileResponseSchema> & Partial<ResidentProfile>;

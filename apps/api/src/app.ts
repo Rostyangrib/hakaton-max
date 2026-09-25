@@ -10,6 +10,7 @@ import {
   maxUpdateSchema,
   residentProfileInputSchema,
   type ApiEnvelope,
+  type AvailableHome,
   type HealthResponse,
 } from '@quiet-chat/shared';
 
@@ -136,11 +137,17 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
   });
 
   async function profileContext(
-    request: { id: string; cookies: Record<string, string | undefined>; headers?: Record<string, unknown>; query?: unknown },
+    request: { id: string; cookies: Record<string, string | undefined>; headers?: Record<string, unknown>; query?: unknown; body?: unknown },
     reply: FastifyReply,
   ) {
     const { SESSION_SECRET: secret, MAX_HOME_CHAT_ID: defaultChatId } = dependencies.config;
-    const requestedChatId = (request.query as { chatId?: string })?.chatId;
+    const queryChatId = (request.query as { chatId?: string })?.chatId;
+    const bodyChatId = typeof (request.body as { chatId?: unknown })?.chatId === 'string'
+      ? (request.body as { chatId: string }).chatId
+      : typeof (request.body as { chatId?: unknown })?.chatId === 'number'
+        ? String((request.body as { chatId: number }).chatId)
+        : undefined;
+    const requestedChatId = queryChatId || bodyChatId;
     const chatId = requestedChatId || defaultChatId;
     if (!dependencies.services || !secret || !chatId) {
       fail(reply, 503, request.id, 'MAX_NOT_CONFIGURED', 'MAX profile integration is not configured');
@@ -205,11 +212,41 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
       await dependencies.services!.profiles.verifyMembership(context.maxUserId, context.maxChatId);
     }
 
+    const activeHomes = dependencies.services!.profiles.getActiveHomes
+      ? await dependencies.services!.profiles.getActiveHomes()
+      : [];
+
+    const availableHomes: AvailableHome[] = [];
+    if (activeHomes.length > 0) {
+      for (const home of activeHomes) {
+        const homeChatIdNumber = Number(home.maxChatId);
+        const isHomeMember = Number.isSafeInteger(homeChatIdNumber)
+          ? (homeChatIdNumber === context.maxChatIdNumber
+              ? isMember
+              : await dependencies.services!.membership.isMember(homeChatIdNumber, maxUserIdNumber))
+          : false;
+        availableHomes.push({
+          chatId: home.maxChatId.toString(),
+          title: home.title,
+          isMember: isHomeMember,
+          chatUrl: home.chatUrl,
+        });
+      }
+    } else {
+      availableHomes.push({
+        chatId: context.maxChatId.toString(),
+        title: homeChatTitle,
+        isMember,
+        chatUrl: homeChatUrl,
+      });
+    }
+
     return reply.code(200).send(envelope(request.id, {
-      profile,
+      profile: profile ?? null,
       isMember,
       homeChatTitle,
       homeChatUrl,
+      availableHomes,
       ...(profile ? profile : {}),
     }));
   });
