@@ -90,9 +90,9 @@ const summaryService = bot && Number.isSafeInteger(configuredHomeChatId)
 let botUsername = config.MAX_BOT_USERNAME || 'se14396800_bot';
 let botContactId: number | undefined;
 
-const summaryCallbackHandler = bot && summaryService
+const summaryCallbackHandler = bot && summaryService && wrappedBotApi
   ? new SummaryCallbackHandler({
-      botApi: bot.api,
+      botApi: wrappedBotApi,
       summaryService,
       onUserSeen: (user) => upsertUser(user, true),
       getUserDirectUrl: (userId) => getUserDirectUrl(userId),
@@ -222,7 +222,7 @@ async function sendWelcome(user: MaxUserPayload): Promise<void> {
     ? createWelcomeKeyboard(botUsername, directUrl, botContactId)
     : undefined;
   try {
-    await bot.api.sendMessageToUser(
+    await (wrappedBotApi ?? bot.api).sendMessageToUser(
       user.user_id,
       welcomeText,
       {
@@ -233,7 +233,7 @@ async function sendWelcome(user: MaxUserPayload): Promise<void> {
     );
   } catch (error) {
     if (directUrl) {
-      await bot.api.sendMessageToUser(
+      await (wrappedBotApi ?? bot.api).sendMessageToUser(
         user.user_id,
         `${welcomeText}\n\nЗаполнить профиль: ${directUrl}`,
         { notify: true, format: 'markdown' },
@@ -295,7 +295,7 @@ async function processUpdate(payload: unknown): Promise<void> {
         try {
           const [home] = await database.db.select({ title: homes.title }).from(homes).where(eq(homes.maxChatId, BigInt(chatId))).limit(1);
           const homeTitle = home?.title || 'домового чата';
-          await bot.api.sendMessageToUser(
+          await (wrappedBotApi ?? bot.api).sendMessageToUser(
             user.user_id,
             `Вы покинули чат «${homeTitle}». Доступ к сводкам и персональным оповещениям QuietChat приостановлен.`,
             { notify: true, format: 'markdown' },
@@ -320,16 +320,38 @@ async function processUpdate(payload: unknown): Promise<void> {
     const chatId = typeof parsed.chat_id === 'string' ? Number(parsed.chat_id) : parsed.chat_id;
     if (user && typeof chatId === 'number' && Number.isSafeInteger(chatId)) {
       membershipCache.set(`${chatId}:${user.user_id}`, { isMember: true, expiresAt: Date.now() + 30_000 });
+      await upsertUser(user, false);
       await summaryRepo.verifyMembershipByChatId(BigInt(chatId), BigInt(user.user_id));
       if (bot) {
         try {
           const [home] = await database.db.select({ title: homes.title }).from(homes).where(eq(homes.maxChatId, BigInt(chatId))).limit(1);
           const homeTitle = home?.title || 'домового чата';
-          await bot.api.sendMessageToUser(
-            user.user_id,
-            `Вы вступили в чат «${homeTitle}». Доступ к персонализированным сводкам и уведомлениям QuietChat активен!`,
-            { notify: true, format: 'markdown' },
-          );
+          const directUrl = getUserDirectUrl(user.user_id);
+          const keyboard = config.MAX_MINI_APP_URL
+            ? createWelcomeKeyboard(botUsername, directUrl, botContactId)
+            : undefined;
+          const notificationText = `Вы вступили в чат «${homeTitle}». Доступ к персонализированным сводкам и уведомлениям QuietChat активен!`;
+          try {
+            await (wrappedBotApi ?? bot.api).sendMessageToUser(
+              user.user_id,
+              notificationText,
+              {
+                notify: true,
+                format: 'markdown',
+                ...(keyboard ? { attachments: [keyboard] } : {}),
+              },
+            );
+          } catch (sendError) {
+            if (directUrl) {
+              await (wrappedBotApi ?? bot.api).sendMessageToUser(
+                user.user_id,
+                `${notificationText}\n\nНастроить профиль: ${directUrl}`,
+                { notify: true, format: 'markdown' },
+              );
+            } else {
+              throw sendError;
+            }
+          }
         } catch (error) {
           console.warn(JSON.stringify({
             level: 'warn',

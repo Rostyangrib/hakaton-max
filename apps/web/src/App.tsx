@@ -17,13 +17,17 @@ type FormState = {
   alertsEnabled: boolean;
 };
 
-const emptyForm: FormState = {
-  apartment: '',
-  entrance: '',
-  floor: '',
-  vehicles: [{ plate: '', description: '' }],
-  alertsEnabled: true,
-};
+export function createEmptyForm(): FormState {
+  return {
+    apartment: '',
+    entrance: '',
+    floor: '',
+    vehicles: [{ plate: '', description: '' }],
+    alertsEnabled: true,
+  };
+}
+
+const emptyForm = createEmptyForm();
 
 let activeSessionToken: string | null = null;
 try {
@@ -40,6 +44,13 @@ function setSessionToken(token: string | undefined) {
   } catch {
     // ignore storage write error
   }
+}
+
+function cleanStringValue(value: unknown): string {
+  if (value == null) return '';
+  const s = String(value).trim();
+  if (s === 'undefined' || s === 'null' || s === 'NaN') return '';
+  return s;
 }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -72,32 +83,32 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export function fromProfile(profile: ResidentProfile | null | undefined): FormState {
-  if (!profile) return emptyForm;
+  if (!profile) return createEmptyForm();
 
   const vehicles: VehicleState[] =
-    profile.vehicles && profile.vehicles.length > 0
+    Array.isArray(profile.vehicles) && profile.vehicles.length > 0
       ? profile.vehicles.map((v) => ({
-          plate: v.plate ?? '',
-          description: v.description ?? '',
+          plate: cleanStringValue(v?.plate),
+          description: cleanStringValue(v?.description),
         }))
       : [
           {
-            plate: profile.carPlate ?? '',
-            description: profile.carDescription ?? '',
+            plate: cleanStringValue(profile.carPlate),
+            description: cleanStringValue(profile.carDescription),
           },
         ];
 
   return {
-    apartment: profile.apartment != null ? String(profile.apartment) : '',
-    entrance: profile.entrance != null ? String(profile.entrance) : '',
-    floor: profile.floor != null ? String(profile.floor) : '',
+    apartment: cleanStringValue(profile.apartment),
+    entrance: cleanStringValue(profile.entrance),
+    floor: cleanStringValue(profile.floor),
     vehicles: vehicles.length > 0 ? vehicles : [{ plate: '', description: '' }],
     alertsEnabled: profile.alertsEnabled ?? true,
   };
 }
 
 export function App() {
-  const [form, setForm] = useState<FormState>(emptyForm);
+  const [form, setForm] = useState<FormState>(createEmptyForm);
   const [phase, setPhase] = useState<'loading' | 'ready' | 'saving' | 'error'>('loading');
   const [message, setMessage] = useState('Подключаемся к MAX…');
   const [displayName, setDisplayName] = useState('');
@@ -119,13 +130,14 @@ export function App() {
     const profile = res && 'profile' in res ? (res.profile ?? null) : null;
     const memberStatus = typeof res?.isMember === 'boolean' ? res.isMember : true;
     setIsMember(memberStatus);
-    if (res?.homeChatTitle) setHomeChatTitle(res.homeChatTitle);
-    if (res?.homeChatUrl) setHomeChatUrl(res.homeChatUrl);
+    setHomeChatTitle(res?.homeChatTitle || 'Домовой чат');
+    setHomeChatUrl(res?.homeChatUrl || null);
     if (res?.availableHomes && res.availableHomes.length > 0) {
       setAvailableHomes(res.availableHomes);
     }
-    if (targetChatId) setChatId(targetChatId);
-    else if (res?.availableHomes && res.availableHomes.length > 0 && !chatId) {
+    if (targetChatId) {
+      setChatId(targetChatId);
+    } else if (res?.availableHomes && res.availableHomes.length > 0 && !chatId) {
       const firstChatId = res.availableHomes[0]?.chatId;
       if (firstChatId) setChatId(firstChatId);
     }
@@ -142,16 +154,21 @@ export function App() {
   async function selectHome(targetChatId: string) {
     if (targetChatId === chatId || phase === 'saving' || phase === 'loading') return;
     setChatId(targetChatId);
+    const existingHome = availableHomes.find((h) => h.chatId === targetChatId);
+    if (existingHome) {
+      setHomeChatTitle(existingHome.title);
+      setHomeChatUrl(existingHome.chatUrl || null);
+      if (typeof existingHome.isMember === 'boolean') {
+        setIsMember(existingHome.isMember);
+      }
+    }
     if (isDemoMode) {
-      const selected = availableHomes.find((h) => h.chatId === targetChatId);
-      if (selected) {
-        setHomeChatTitle(selected.title);
-        setIsMember(selected.isMember);
+      if (existingHome) {
         if (targetChatId === '-79396775944382') {
-          setForm((c) => ({ ...c, apartment: '', entrance: '', floor: '' }));
+          setForm(createEmptyForm());
           setMessage('Заполните данные для персональных уведомлений');
         } else {
-          setForm((c) => ({ ...c, apartment: '54', entrance: '3', floor: '8' }));
+          setForm({ apartment: '54', entrance: '3', floor: '8', vehicles: [{ plate: 'A123BC77', description: 'Белая Toyota Camry' }], alertsEnabled: true });
           setMessage('Профиль заполнен');
         }
       }
@@ -204,7 +221,8 @@ export function App() {
     const hashString = window.location.hash.replace(/^#/, '');
     const hashParams = new URLSearchParams(hashString);
     const token = urlParams.get('token') || hashParams.get('token');
-    const resolvedChatId = urlParams.get('chat_id') || urlParams.get('chatId') || hashParams.get('chat_id') || hashParams.get('chatId');
+    const rawChatId = urlParams.get('chat_id') || urlParams.get('chatId') || hashParams.get('chat_id') || hashParams.get('chatId');
+    const resolvedChatId = rawChatId && rawChatId !== 'undefined' && rawChatId !== 'null' ? rawChatId : null;
     if (resolvedChatId) setChatId(resolvedChatId);
 
     const bridge = window.WebApp;
@@ -228,19 +246,24 @@ export function App() {
         { chatId: '-79396775944382', title: 'Тест 2', isMember: true },
       ]);
       setChatId(resolvedChatId || '-79181109403700');
-      setForm({
-        apartment: '54',
-        entrance: '3',
-        floor: '8',
-        vehicles: [{ plate: 'A123BC77', description: 'Белая Toyota Camry' }],
-        alertsEnabled: true,
-      });
       const demoNotMember = urlParams.get('not_member') === '1' || hashParams.get('not_member') === '1';
       setIsMember(!demoNotMember);
+      if (demoNotMember) {
+        setForm(createEmptyForm());
+        setMessage('Вступите в чат дома для работы бота');
+      } else {
+        setForm({
+          apartment: '54',
+          entrance: '3',
+          floor: '8',
+          vehicles: [{ plate: 'A123BC77', description: 'Белая Toyota Camry' }],
+          alertsEnabled: true,
+        });
+        setMessage('Профиль заполнен');
+      }
       setHomeChatTitle(resolvedChatId === '-79396775944382' ? 'Тест 2' : 'Тестовый дом');
       setHomeChatUrl('https://max.ru/chat-demo');
       setPhase('ready');
-      setMessage(demoNotMember ? 'Вступите в чат дома для работы бота' : 'Профиль заполнен');
       return;
     }
 
@@ -464,7 +487,7 @@ export function App() {
             <path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z" />
           </svg>
         </div>
-        <span className="user-name">{displayName || 'Ростислав Затопляев'}</span>
+        <span className="user-name">{displayName || 'Жилец'}</span>
       </div>
 
       <form className="form" onSubmit={(event) => void save(event)}>

@@ -229,7 +229,15 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
           chatId: home.maxChatId.toString(),
           title: home.title,
           isMember: isHomeMember,
-          chatUrl: home.chatUrl,
+          chatUrl: home.chatUrl || (home.maxChatId === context.maxChatId ? homeChatUrl : null),
+        });
+      }
+      if (!availableHomes.some((h) => h.chatId === context.maxChatId.toString())) {
+        availableHomes.unshift({
+          chatId: context.maxChatId.toString(),
+          title: homeChatTitle,
+          isMember,
+          chatUrl: homeChatUrl,
         });
       }
     } else {
