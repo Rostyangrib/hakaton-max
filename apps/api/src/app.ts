@@ -257,6 +257,7 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     let finalIsMember = isMember;
     let finalTitle = homeChatTitle;
     let finalUrl: string | null = homeChatUrl;
+    let finalChatId = requestedChatId || context.maxChatId.toString();
 
     if (!requestedChatId && !isMember) {
       const memberHome = availableHomes.find((h) => h.isMember);
@@ -270,10 +271,12 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
         finalIsMember = true;
         finalTitle = memberHome.title;
         finalUrl = memberHome.chatUrl ?? null;
+        finalChatId = memberHome.chatId;
       }
     }
 
     return reply.code(200).send(envelope(request.id, {
+      chatId: finalChatId,
       profile: finalProfile ?? null,
       isMember: finalIsMember,
       homeChatTitle: finalTitle,

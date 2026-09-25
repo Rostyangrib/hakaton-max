@@ -136,8 +136,9 @@ export function App() {
       setAvailableHomes(res.availableHomes);
     }
     const memberHomes = (res?.availableHomes || []).filter((h) => h.isMember === true);
-    if (targetChatId) {
-      setChatId(targetChatId);
+    const resolvedChat = res?.chatId || targetChatId;
+    if (resolvedChat) {
+      setChatId(resolvedChat);
     } else if (memberHomes.length > 0) {
       const isCurrentInMembers = memberHomes.some((h) => h.chatId === chatId);
       if (!isCurrentInMembers) {
@@ -253,16 +254,38 @@ export function App() {
       setIsDemoMode(true);
       setDisplayName('Ростислав Затопляев');
       const demoNotMember = urlParams.get('not_member') === '1' || hashParams.get('not_member') === '1';
-      setAvailableHomes([
-        { chatId: '-79181109403700', title: 'Тестовый дом', isMember: !demoNotMember },
-        { chatId: '-79396775944382', title: 'Тест 2', isMember: !demoNotMember },
-      ]);
-      setChatId(resolvedChatId || '-79181109403700');
-      setIsMember(!demoNotMember);
+      const demoChat2Only = urlParams.get('chat2_only') === '1' || hashParams.get('chat2_only') === '1';
       if (demoNotMember) {
+        setAvailableHomes([
+          { chatId: '-79181109403700', title: 'Тестовый дом', isMember: false },
+          { chatId: '-79396775944382', title: 'Тест 2', isMember: false },
+        ]);
+        setChatId('-79181109403700');
+        setIsMember(false);
         setForm(createEmptyForm());
         setMessage('Вступите в чат дома для работы бота');
+      } else if (demoChat2Only) {
+        setAvailableHomes([
+          { chatId: '-79181109403700', title: 'Тестовый дом', isMember: false },
+          { chatId: '-79396775944382', title: 'Тест 2', isMember: true },
+        ]);
+        setChatId('-79396775944382');
+        setIsMember(true);
+        setForm({
+          apartment: '101',
+          entrance: '1',
+          floor: '2',
+          vehicles: [{ plate: 'B777BB77', description: 'BMW' }],
+          alertsEnabled: true,
+        });
+        setMessage('Профиль заполнен');
       } else {
+        setAvailableHomes([
+          { chatId: '-79181109403700', title: 'Тестовый дом', isMember: true },
+          { chatId: '-79396775944382', title: 'Тест 2', isMember: true },
+        ]);
+        setChatId(resolvedChatId || '-79181109403700');
+        setIsMember(true);
         setForm({
           apartment: '54',
           entrance: '3',
@@ -272,7 +295,7 @@ export function App() {
         });
         setMessage('Профиль заполнен');
       }
-      setHomeChatTitle(resolvedChatId === '-79396775944382' ? 'Тест 2' : 'Тестовый дом');
+      setHomeChatTitle(resolvedChatId === '-79396775944382' || demoChat2Only ? 'Тест 2' : 'Тестовый дом');
       setHomeChatUrl('https://max.ru/chat-demo');
       setPhase('ready');
       return;
@@ -503,84 +526,109 @@ export function App() {
         <span className="user-name">{displayName || 'Жилец'}</span>
       </div>
 
-      <form className="form" onSubmit={(event) => void save(event)}>
-        {/* Warning if not a member */}
-        {(isMember === false || memberHomes.length === 0) && (
-          <aside className="membership-warning" role="alert" aria-label="Предупреждение о членстве в чате">
-            <div className="membership-warning__header">
-              <div className="membership-warning__icon" aria-hidden="true">!</div>
-              <div className="membership-warning__title">
-                {memberHomes.length === 0
-                  ? 'Вы пока не состоите ни в одном домовом чате'
-                  : 'Вы ещё не вступили в домовой чат'}
-              </div>
-            </div>
-            <p className="membership-warning__text">
-              {memberHomes.length === 0
-                ? 'Чтобы сервис «Тихий Чат» мог присылать вам персональные уведомления и сводки, вступите в домовой чат вашего дома.'
-                : `Чтобы сервис «Тихий Чат» мог присылать вам персональные уведомления и сводки по дому «${homeChatTitle}», необходимо вступить в домовой чат.`}
-            </p>
-            <div className="membership-warning__actions">
-              {homeChatUrl && (
-                <a
-                  href={homeChatUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="membership-warning__btn"
-                >
-                  Вступить в домовой чат
-                </a>
-              )}
-              <button
-                type="button"
-                className="membership-warning__btn membership-warning__btn--secondary"
-                onClick={() => void checkMembership(true)}
-                disabled={checkingMembership}
+      {phase === 'ready' && memberHomes.length === 0 ? (
+        <aside className="not-member-card" role="alert" aria-label="Информация о членстве в чате">
+          <div className="not-member-card__icon" aria-hidden="true">!</div>
+          <h2 className="not-member-card__title">Вы пока не состоите ни в одном домовом чате</h2>
+          <p className="not-member-card__text">
+            Чтобы сервис «Тихий Чат» мог присылать вам персональные уведомления и сводки, вступите в домовой чат вашего дома.
+          </p>
+          <div className="not-member-card__actions">
+            {homeChatUrl && (
+              <a
+                href={homeChatUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="membership-warning__btn"
               >
-                {checkingMembership ? 'Проверяем…' : 'Проверить статус'}
-              </button>
-            </div>
-          </aside>
-        )}
+                Вступить в домовой чат
+              </a>
+            )}
+            <button
+              type="button"
+              className="membership-warning__btn membership-warning__btn--secondary"
+              onClick={() => void checkMembership(true)}
+              disabled={checkingMembership}
+            >
+              {checkingMembership ? 'Проверяем…' : 'Проверить статус'}
+            </button>
+          </div>
+        </aside>
+      ) : (
+        <form className="form" onSubmit={(event) => void save(event)}>
+          {/* Warning if not a member */}
+          {isMember === false && (
+            <aside className="membership-warning" role="alert" aria-label="Предупреждение о членстве в чате">
+              <div className="membership-warning__header">
+                <div className="membership-warning__icon" aria-hidden="true">!</div>
+                <div className="membership-warning__title">Вы ещё не вступили в домовой чат</div>
+              </div>
+              <p className="membership-warning__text">
+                {`Чтобы сервис «Тихий Чат» мог присылать вам персональные уведомления и сводки по дому «${homeChatTitle}», необходимо вступить в домовой чат.`}
+              </p>
+              <div className="membership-warning__actions">
+                {homeChatUrl && (
+                  <a
+                    href={homeChatUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="membership-warning__btn"
+                  >
+                    Вступить в домовой чат
+                  </a>
+                )}
+                <button
+                  type="button"
+                  className="membership-warning__btn membership-warning__btn--secondary"
+                  onClick={() => void checkMembership(true)}
+                  disabled={checkingMembership}
+                >
+                  {checkingMembership ? 'Проверяем…' : 'Проверить статус'}
+                </button>
+              </div>
+            </aside>
+          )}
 
           {/* Section 01 - Адрес */}
-        <section aria-labelledby="section-01-title">
-          <div className="section-header">
-            <span className="section-number section-number--active">01</span>
-            <div className="section-separator" aria-hidden="true" />
-            <div className="section-title-wrap">
-              <h2 id="section-01-title" className="section-title">
-                Адрес
-              </h2>
-              <span className="section-subtitle">Обязательные данные</span>
+          <section aria-labelledby="section-01-title">
+            <div className="section-header">
+              <span className="section-number section-number--active">01</span>
+              <div className="section-separator" aria-hidden="true" />
+              <div className="section-title-wrap">
+                <h2 id="section-01-title" className="section-title">
+                  Адрес
+                </h2>
+                <span className="section-subtitle">Обязательные данные</span>
+              </div>
             </div>
-          </div>
 
-          {memberHomes.length > 1 && (
-            <div className="home-selector" role="region" aria-label="Выбор дома">
-              <div className="home-selector__header">
-                <span className="home-selector__label">Домовой чат</span>
-                <span className="home-selector__hint">Выберите дом для настройки адреса</span>
+            {memberHomes.length > 0 && (
+              <div className="home-selector" role="region" aria-label="Выбор дома">
+                <div className="home-selector__header">
+                  <span className="home-selector__label">Домовой чат</span>
+                  {memberHomes.length > 1 && (
+                    <span className="home-selector__hint">Выберите дом для настройки адреса</span>
+                  )}
+                </div>
+                <div className="home-tabs" role="tablist">
+                  {memberHomes.map((home) => {
+                    const isCurrent = home.chatId === chatId || (!chatId && home.title === homeChatTitle);
+                    return (
+                      <button
+                        key={home.chatId}
+                        type="button"
+                        role="tab"
+                        aria-selected={isCurrent}
+                        className={`home-tab ${isCurrent ? 'home-tab--active' : ''}`}
+                        onClick={() => void selectHome(home.chatId)}
+                      >
+                        <span className="home-tab__title">{home.title}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-              <div className="home-tabs" role="tablist">
-                {memberHomes.map((home) => {
-                  const isCurrent = home.chatId === chatId || (!chatId && home.title === homeChatTitle);
-                  return (
-                    <button
-                      key={home.chatId}
-                      type="button"
-                      role="tab"
-                      aria-selected={isCurrent}
-                      className={`home-tab ${isCurrent ? 'home-tab--active' : ''}`}
-                      onClick={() => void selectHome(home.chatId)}
-                    >
-                      <span className="home-tab__title">{home.title}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
+            )}
 
           <label className="field">
             <span className="field-label">Квартира</span>
@@ -804,18 +852,12 @@ export function App() {
         <button
           type="submit"
           className="submit-button"
-          disabled={disabled || isMember === false || memberHomes.length === 0}
-          title={
-            memberHomes.length === 0
-              ? 'Сначала вступите в домовой чат'
-              : isMember === false
-                ? `Сначала вступите в домовой чат «${homeChatTitle}»`
-                : undefined
-          }
+          disabled={disabled || isMember === false}
+          title={isMember === false ? `Сначала вступите в домовой чат «${homeChatTitle}»` : undefined}
         >
           {phase === 'saving'
             ? 'Сохранение…'
-            : isMember === false || memberHomes.length === 0
+            : isMember === false
               ? 'Сначала вступите в домовой чат'
               : 'Сохранить изменения'}
         </button>
@@ -839,6 +881,7 @@ export function App() {
           <span>Данные видит только бот «Тихий Чат»</span>
         </div>
       </form>
+    )}
     </main>
   );
 }

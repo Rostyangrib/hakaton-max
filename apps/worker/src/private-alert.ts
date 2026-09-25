@@ -12,7 +12,7 @@ export function createAlertText(
 ): string {
   const compactText = messageText.trim().replace(/\s+/g, ' ');
   const excerpt = compactText.length > 240 ? `${compactText.slice(0, 237)}…` : compactText;
-  const header = homeTitle
+  const header = homeTitle && homeTitle !== 'Домовой чат'
     ? `🔔 В домовом чате «${homeTitle}» упомянули: ${trigger.label}.`
     : `🔔 В домовом чате упомянули: ${trigger.label}.`;
   return [

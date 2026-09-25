@@ -685,6 +685,61 @@ input, textarea, select {
   background-color: #FFF2CC;
 }
 
+/* Not Member Card (when user does not belong to any house chat) */
+.not-member-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 24px 20px;
+  border-radius: 16px;
+  background-color: #FFFFFF;
+  border: 1px solid #D5E7EE;
+  box-shadow: 0 4px 16px rgba(5, 11, 37, 0.05);
+  margin: 16px 0 24px;
+  text-align: center;
+  align-items: center;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.not-member-card__icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background-color: #FFF2CC;
+  color: #D97706;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 22px;
+  flex-shrink: 0;
+}
+
+.not-member-card__title {
+  font-size: 17px;
+  font-weight: 700;
+  color: #050B25;
+  line-height: 1.3;
+  margin: 0;
+}
+
+.not-member-card__text {
+  font-size: 14px;
+  color: #60768B;
+  line-height: 1.45;
+  margin: 0;
+  max-width: 320px;
+}
+
+.not-member-card__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  margin-top: 8px;
+}
+
 /* Browser fallback for direct web testing */
 .browser-fallback {
   margin: 0 0 16px;

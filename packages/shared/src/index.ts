@@ -56,6 +56,7 @@ export const availableHomeSchema = z.object({
 export type AvailableHome = z.infer<typeof availableHomeSchema>;
 
 export const profileResponseSchema = z.object({
+  chatId: z.string().optional(),
   profile: residentProfileSchema.nullable(),
   isMember: z.boolean(),
   homeChatTitle: z.string().nullable().optional(),
