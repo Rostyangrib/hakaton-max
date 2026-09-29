@@ -1,7 +1,7 @@
 import { Keyboard } from '@maxhub/max-bot-api';
 
 export const welcomeText = [
-  'Привет! Я помогу не пропускать важное в домовом чате.',
+  'Привет! Я «Тихий Чат» — помогу не пропускать важное в домовом чате.',
   '',
   'Заполни профиль: квартиру, подъезд и при желании автомобиль. Уведомления будут приходить только сюда, в личный диалог.',
   '',
@@ -24,13 +24,18 @@ export function createWelcomeKeyboard(appTarget: string, _directUrl?: string, co
   ]);
 }
 
-export function createSummaryButtons() {
-  return [
-    [Keyboard.button.callback('📅 Сегодня', 'summary:today'), Keyboard.button.callback('📆 7 дней', 'summary:week')],
-    [Keyboard.button.callback('🗓️ 30 дней', 'summary:month')],
+export function createSummaryButtons(homeId?: string, showChangeHome = false) {
+  const suffix = homeId ? `:${homeId}` : '';
+  const rows = [
+    [Keyboard.button.callback('📅 Сегодня', `summary:today${suffix}`), Keyboard.button.callback('📆 7 дней', `summary:week${suffix}`)],
+    [Keyboard.button.callback('🗓️ 30 дней', `summary:month${suffix}`)],
   ];
+  if (showChangeHome) {
+    rows.push([Keyboard.button.callback('🏠 Сменить дом', 'summary:choose_home')]);
+  }
+  return rows;
 }
 
-export function createSummaryKeyboard() {
-  return Keyboard.inlineKeyboard(createSummaryButtons());
+export function createSummaryKeyboard(homeId?: string, showChangeHome = false) {
+  return Keyboard.inlineKeyboard(createSummaryButtons(homeId, showChangeHome));
 }

@@ -57,8 +57,13 @@ export interface DeliveryReservation {
   id: string;
 }
 
+export interface PipelineMembershipChecker {
+  isMember(maxChatId: number, maxUserId: number): Promise<boolean>;
+}
+
 export interface MessageRepository {
   ensureHome(maxChatId: bigint): Promise<string>;
+  getHomeTitle?(homeId: string): Promise<string | null>;
   upsertCreated(homeId: string, message: IncomingMessage, normalizedText: string, payloadHash: string): Promise<StoredMessage>;
   updateEdited(homeId: string, message: IncomingMessage, normalizedText: string, payloadHash: string): Promise<StoredMessage | null>;
   markDeleted(homeId: string, maxMessageId: string, deletedAt: Date): Promise<boolean>;
@@ -72,6 +77,7 @@ export interface MessageRepository {
   }): Promise<DeliveryReservation | null>;
   markDeliveryDone(id: string, sentAt: Date): Promise<void>;
   markDeliveryFailed(id: string, error: string): Promise<void>;
+  revokeMembership?(homeId: string, maxUserId: bigint): Promise<void>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -102,7 +108,13 @@ export function parseIncomingMessage(value: unknown): IncomingMessage | null {
       : typeof rawSenderId === 'string' && /^\d+$/.test(rawSenderId)
         ? Number(rawSenderId)
         : null;
-  const chatId = value.recipient.chat_id;
+  const rawChatId = value.recipient.chat_id;
+  const chatId =
+    typeof rawChatId === 'number'
+      ? rawChatId
+      : typeof rawChatId === 'string' && /^-?\d+$/.test(rawChatId)
+        ? Number(rawChatId)
+        : null;
   const chatType = value.recipient.chat_type;
   const maxMessageId = value.body.mid;
   const text = value.body.text;
@@ -111,6 +123,7 @@ export function parseIncomingMessage(value: unknown): IncomingMessage | null {
   if (
     !senderId ||
     !Number.isSafeInteger(senderId) ||
+    chatId == null ||
     !Number.isSafeInteger(chatId) ||
     typeof chatType !== 'string' ||
     typeof maxMessageId !== 'string' ||
@@ -120,7 +133,7 @@ export function parseIncomingMessage(value: unknown): IncomingMessage | null {
   ) return null;
   return {
     maxMessageId,
-    chatId: chatId as number,
+    chatId,
     chatType,
     senderUserId: senderId,
     senderDisplayName: displayName,
@@ -133,8 +146,9 @@ export class MessagePipeline {
   constructor(
     private readonly repository: MessageRepository,
     private readonly privateApi: PrivateMessageApi,
-    private readonly homeChatId: number,
+    private readonly homeChatId: number | null | undefined,
     private readonly antifloodMinutes: number,
+    private readonly membershipChecker?: PipelineMembershipChecker | null,
   ) {}
 
   async handle(update: MaxUpdate): Promise<boolean> {
@@ -142,8 +156,9 @@ export class MessagePipeline {
     if (update.update_type !== 'message_created' && update.update_type !== 'message_edited') return false;
 
     const message = parseIncomingMessage(update.message);
-    if (!message || message.chatType !== 'chat' || message.chatId !== this.homeChatId || !message.text.trim()) return false;
-    const homeId = await this.repository.ensureHome(BigInt(this.homeChatId));
+    if (!message || message.chatType !== 'chat' || !message.text.trim()) return false;
+    if (this.homeChatId != null && message.chatId !== this.homeChatId) return false;
+    const homeId = await this.repository.ensureHome(BigInt(message.chatId));
     const normalized = normalizeText(message.text);
     const payloadHash = createHash('sha256').update(message.text).digest('hex');
     const stored = update.update_type === 'message_created'
@@ -155,10 +170,17 @@ export class MessagePipeline {
   }
 
   private async handleRemoved(update: MaxUpdate): Promise<boolean> {
-    const chatId = update.chat_id;
+    const rawChatId = update.chat_id;
+    const chatId =
+      typeof rawChatId === 'number'
+        ? rawChatId
+        : typeof rawChatId === 'string' && /^-?\d+$/.test(rawChatId)
+          ? Number(rawChatId)
+          : null;
     const messageId = update.message_id;
-    if (!Number.isSafeInteger(chatId) || chatId !== this.homeChatId || typeof messageId !== 'string') return false;
-    const homeId = await this.repository.ensureHome(BigInt(this.homeChatId));
+    if (chatId == null || !Number.isSafeInteger(chatId) || typeof messageId !== 'string') return false;
+    if (this.homeChatId != null && chatId !== this.homeChatId) return false;
+    const homeId = await this.repository.ensureHome(BigInt(chatId));
     await this.repository.markDeleted(homeId, messageId, timestampToDate(update.timestamp) ?? new Date());
     return true;
   }
@@ -166,6 +188,7 @@ export class MessagePipeline {
   private async createAlerts(message: StoredMessage): Promise<void> {
     const profiles = await this.repository.findAlertProfiles(message.homeId, BigInt(message.senderUserId));
     const baseTriggers = detectMessageTriggers(message.text);
+    const homeTitle = (await this.repository.getHomeTitle?.(message.homeId)) || undefined;
 
     for (const profile of profiles) {
       const triggers = baseTriggers.filter((trigger) => triggerMatchesProfile(trigger, profile));
@@ -189,6 +212,19 @@ export class MessagePipeline {
 
       const uniqueTriggers = [...new Map(triggers.map((trigger) => [`${trigger.type}:${trigger.value}`, trigger])).values()];
       for (const trigger of uniqueTriggers) {
+        const recipientId = Number(profile.maxUserId);
+        if (!Number.isSafeInteger(recipientId)) throw new Error('MAX user id exceeds JavaScript safe integer range');
+
+        if (this.membershipChecker) {
+          const isMember = await this.membershipChecker.isMember(message.chatId, recipientId);
+          if (!isMember) {
+            if (this.repository.revokeMembership) {
+              await this.repository.revokeMembership(message.homeId, profile.maxUserId);
+            }
+            break;
+          }
+        }
+
         const reservation = await this.repository.reserveDelivery({
           profileId: profile.id,
           messageId: message.id,
@@ -201,7 +237,7 @@ export class MessagePipeline {
         try {
           const recipientId = Number(profile.maxUserId);
           if (!Number.isSafeInteger(recipientId)) throw new Error('MAX user id exceeds JavaScript safe integer range');
-          await sendPrivateAlert(this.privateApi, recipientId, trigger, message.senderDisplayName, message.text);
+          await sendPrivateAlert(this.privateApi, recipientId, trigger, message.senderDisplayName, message.text, homeTitle);
           await this.repository.markDeliveryDone(reservation.id, new Date());
           break;
         } catch (error) {

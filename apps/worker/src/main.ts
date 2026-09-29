@@ -1,7 +1,7 @@
 import { Bot } from '@maxhub/max-bot-api';
 import { eq } from 'drizzle-orm';
 import { loadConfig } from '@quiet-chat/config';
-import { createDatabase, users } from '@quiet-chat/database';
+import { createDatabase, homes, users } from '@quiet-chat/database';
 import { maxUpdateSchema } from '@quiet-chat/shared';
 
 import { createWelcomeKeyboard, welcomeText } from './menu.js';
@@ -17,12 +17,46 @@ const config = loadConfig();
 const database = createDatabase(config.DATABASE_URL);
 const bot = config.MAX_BOT_TOKEN ? new Bot(config.MAX_BOT_TOKEN) : null;
 const configuredHomeChatId = Number(config.MAX_HOME_CHAT_ID);
-const messagePipeline = bot && Number.isSafeInteger(configuredHomeChatId)
+const membershipCache = new Map<string, { isMember: boolean; expiresAt: number }>();
+const workerMembershipChecker = bot
+  ? {
+      async isMember(maxChatId: number, maxUserId: number) {
+        const key = `${maxChatId}:${maxUserId}`;
+        const cached = membershipCache.get(key);
+        const now = Date.now();
+        if (cached && cached.expiresAt > now) return cached.isMember;
+        try {
+          const response = await bot.api.getChatMembers(maxChatId, { user_ids: [maxUserId] });
+          const isMember = response.members.some((member: { user_id?: number; id?: number }) => (member.user_id ?? member.id) === maxUserId);
+          const ttl = isMember ? 30_000 : 5_000;
+          membershipCache.set(key, { isMember, expiresAt: now + ttl });
+          return isMember;
+        } catch {
+          return false;
+        }
+      },
+    }
+  : null;
+
+const wrappedBotApi = bot
+  ? {
+      ...bot.api,
+      sendMessageToUser: (userId: number, text: string, extra?: unknown) =>
+        bot.api.sendMessageToUser(userId, text, {
+          notify: true,
+          format: 'markdown',
+          ...(typeof extra === 'object' && extra ? (extra as Record<string, unknown>) : {}),
+        }),
+    }
+  : null;
+
+const messagePipeline = wrappedBotApi
   ? new MessagePipeline(
       new PostgresMessageRepository(database, config.HOME_TIMEZONE),
-      bot.api,
-      configuredHomeChatId,
+      wrappedBotApi,
+      null,
       config.ALERT_ANTIFLOOD_MINUTES,
+      workerMembershipChecker,
     )
   : null;
 const summaryModel = config.YANDEX_CLOUD_API_KEY && config.YANDEX_CLOUD_FOLDER_ID
@@ -41,20 +75,24 @@ if (!summaryModel) {
     message: 'YandexGPT is not configured (missing YANDEX_CLOUD_API_KEY or YANDEX_CLOUD_FOLDER_ID); summaries will run in fallback mode',
   }));
 }
+
+const summaryRepo = new PostgresSummaryRepository(database);
 const summaryService = bot && Number.isSafeInteger(configuredHomeChatId)
   ? new SummaryService(
-      new PostgresSummaryRepository(database),
+      summaryRepo,
       summaryModel,
       BigInt(configuredHomeChatId),
       config.SUMMARY_CACHE_TTL_SECONDS,
+      () => new Date(),
+      workerMembershipChecker,
     )
   : null;
 let botUsername = config.MAX_BOT_USERNAME || 'se14396800_bot';
 let botContactId: number | undefined;
 
-const summaryCallbackHandler = bot && summaryService
+const summaryCallbackHandler = bot && summaryService && wrappedBotApi
   ? new SummaryCallbackHandler({
-      botApi: bot.api,
+      botApi: wrappedBotApi,
       summaryService,
       onUserSeen: (user) => upsertUser(user, true),
       getUserDirectUrl: (userId) => getUserDirectUrl(userId),
@@ -184,10 +222,22 @@ async function sendWelcome(user: MaxUserPayload): Promise<void> {
     ? createWelcomeKeyboard(botUsername, directUrl, botContactId)
     : undefined;
   try {
-    await bot.api.sendMessageToUser(user.user_id, welcomeText, keyboard ? { attachments: [keyboard] } : undefined);
+    await (wrappedBotApi ?? bot.api).sendMessageToUser(
+      user.user_id,
+      welcomeText,
+      {
+        notify: true,
+        format: 'markdown',
+        ...(keyboard ? { attachments: [keyboard] } : {}),
+      },
+    );
   } catch (error) {
     if (directUrl) {
-      await bot.api.sendMessageToUser(user.user_id, `${welcomeText}\n\nЗаполнить профиль: ${directUrl}`);
+      await (wrappedBotApi ?? bot.api).sendMessageToUser(
+        user.user_id,
+        `${welcomeText}\n\nЗаполнить профиль: ${directUrl}`,
+        { notify: true, format: 'markdown' },
+      );
       return;
     }
     throw error;
@@ -231,6 +281,139 @@ async function processUpdate(payload: unknown): Promise<void> {
         .update(users)
         .set({ botStoppedAt: new Date(), updatedAt: new Date() })
         .where(eq(users.maxUserId, BigInt(user.user_id)));
+    }
+    return;
+  }
+
+  if (parsed.update_type === 'user_removed') {
+    const user = readUser(parsed.user);
+    const chatId = typeof parsed.chat_id === 'string' ? Number(parsed.chat_id) : parsed.chat_id;
+    if (user && typeof chatId === 'number' && Number.isSafeInteger(chatId)) {
+      membershipCache.delete(`${chatId}:${user.user_id}`);
+      await summaryRepo.revokeMembershipByChatId(BigInt(chatId), BigInt(user.user_id));
+      if (bot) {
+        try {
+          const [home] = await database.db.select({ title: homes.title }).from(homes).where(eq(homes.maxChatId, BigInt(chatId))).limit(1);
+          const homeTitle = home?.title || 'домового чата';
+          await (wrappedBotApi ?? bot.api).sendMessageToUser(
+            user.user_id,
+            `Вы покинули чат «${homeTitle}». Доступ к сводкам и персональным оповещениям сервиса «Тихий Чат» приостановлен.`,
+            { notify: true, format: 'markdown' },
+          );
+        } catch (error) {
+          console.warn(JSON.stringify({
+            level: 'warn',
+            service: 'worker',
+            message: 'Failed to send user_removed notification to user',
+            userId: user.user_id,
+            chatId,
+            error: String(error),
+          }));
+        }
+      }
+    }
+    return;
+  }
+
+  if (parsed.update_type === 'user_added') {
+    const user = readUser(parsed.user);
+    const chatId = typeof parsed.chat_id === 'string' ? Number(parsed.chat_id) : parsed.chat_id;
+    if (user && typeof chatId === 'number' && Number.isSafeInteger(chatId)) {
+      membershipCache.set(`${chatId}:${user.user_id}`, { isMember: true, expiresAt: Date.now() + 30_000 });
+      await upsertUser(user, false);
+      await summaryRepo.verifyMembershipByChatId(BigInt(chatId), BigInt(user.user_id));
+      if (bot) {
+        try {
+          const [home] = await database.db.select({ title: homes.title }).from(homes).where(eq(homes.maxChatId, BigInt(chatId))).limit(1);
+          const homeTitle = home?.title || 'домового чата';
+          const directUrl = getUserDirectUrl(user.user_id);
+          const keyboard = config.MAX_MINI_APP_URL
+            ? createWelcomeKeyboard(botUsername, directUrl, botContactId)
+            : undefined;
+          const notificationText = `Вы вступили в чат «${homeTitle}». Доступ к персонализированным сводкам и уведомлениям сервиса «Тихий Чат» активен!`;
+          try {
+            await (wrappedBotApi ?? bot.api).sendMessageToUser(
+              user.user_id,
+              notificationText,
+              {
+                notify: true,
+                format: 'markdown',
+                ...(keyboard ? { attachments: [keyboard] } : {}),
+              },
+            );
+          } catch (sendError) {
+            if (directUrl) {
+              await (wrappedBotApi ?? bot.api).sendMessageToUser(
+                user.user_id,
+                `${notificationText}\n\nНастроить профиль: ${directUrl}`,
+                { notify: true, format: 'markdown' },
+              );
+            } else {
+              throw sendError;
+            }
+          }
+        } catch (error) {
+          console.warn(JSON.stringify({
+            level: 'warn',
+            service: 'worker',
+            message: 'Failed to send user_added notification to user',
+            userId: user.user_id,
+            chatId,
+            error: String(error),
+          }));
+        }
+      }
+    }
+    return;
+  }
+
+  if (parsed.update_type === 'chat_title_changed') {
+    const chatId = parsed.chat_id;
+    const title = typeof parsed.title === 'string' ? parsed.title.trim() : '';
+    if (typeof chatId === 'number' && Number.isSafeInteger(chatId) && title) {
+      await database.db
+        .insert(homes)
+        .values({ maxChatId: BigInt(chatId), title, timezone: config.HOME_TIMEZONE })
+        .onConflictDoUpdate({
+          target: homes.maxChatId,
+          set: { title, updatedAt: new Date() },
+        });
+    }
+    return;
+  }
+
+  if (parsed.update_type === 'bot_added') {
+    const chatId = parsed.chat_id;
+    if (typeof chatId === 'number' && Number.isSafeInteger(chatId)) {
+      let title = 'Домовой чат';
+      let chatUrl: string | null = null;
+      if (bot) {
+        try {
+          const chat = await bot.api.getChat(chatId);
+          if (chat.title) title = chat.title;
+          if (chat.link) chatUrl = chat.link;
+        } catch {
+          // ignore
+        }
+      }
+      await database.db
+        .insert(homes)
+        .values({ maxChatId: BigInt(chatId), title, chatUrl, timezone: config.HOME_TIMEZONE })
+        .onConflictDoUpdate({
+          target: homes.maxChatId,
+          set: { ...(title !== 'Домовой чат' ? { title } : {}), ...(chatUrl ? { chatUrl } : {}), isActive: true, updatedAt: new Date() },
+        });
+    }
+    return;
+  }
+
+  if (parsed.update_type === 'bot_removed') {
+    const chatId = parsed.chat_id;
+    if (typeof chatId === 'number' && Number.isSafeInteger(chatId)) {
+      await database.db
+        .update(homes)
+        .set({ isActive: false, updatedAt: new Date() })
+        .where(eq(homes.maxChatId, BigInt(chatId)));
     }
     return;
   }

@@ -126,9 +126,12 @@ function renderCategory(title: string, items: SummaryItem[]): string[] {
   return [title, ...(items.length ? items.slice(0, 5).map((item) => `• ${item.text.slice(0, 200)}`) : ['Без происшествий'])];
 }
 
-export function renderSummary(result: SummaryResult): string {
+export function renderSummary(result: SummaryResult, homeTitle?: string): string {
   const periodLabels: Record<SummaryPeriod, string> = { today: 'сегодня', week: 'последние 7 дней', month: 'последние 30 дней' };
-  const header = `**Сводка за ${periodLabels[result.period]}**`;
+  const title = homeTitle || result.homeTitle;
+  const header = title
+    ? `**Сводка по дому «${title}» за ${periodLabels[result.period]}**`
+    : `**Сводка за ${periodLabels[result.period]}**`;
 
   return [
     header, '',
