@@ -82,28 +82,38 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return (payload as ApiEnvelope<T>).data as T;
 }
 
-export function fromProfile(profile: ResidentProfile | null | undefined): FormState {
-  if (!profile) return createEmptyForm();
+export function fromProfile(
+  profile: ResidentProfile | null | undefined,
+  overrideVehicles?: VehicleState[] | null,
+): FormState {
+  if (!profile && !overrideVehicles) return createEmptyForm();
 
-  const vehicles: VehicleState[] =
-    Array.isArray(profile.vehicles) && profile.vehicles.length > 0
-      ? profile.vehicles.map((v) => ({
-          plate: cleanStringValue(v?.plate),
-          description: cleanStringValue(v?.description),
-        }))
-      : [
-          {
-            plate: cleanStringValue(profile.carPlate),
-            description: cleanStringValue(profile.carDescription),
-          },
-        ];
+  let vehicles: VehicleState[] = [];
+  if (overrideVehicles && overrideVehicles.length > 0) {
+    vehicles = overrideVehicles.map((v) => ({
+      plate: cleanStringValue(v?.plate),
+      description: cleanStringValue(v?.description),
+    }));
+  } else if (profile?.vehicles && Array.isArray(profile.vehicles) && profile.vehicles.length > 0) {
+    vehicles = profile.vehicles.map((v) => ({
+      plate: cleanStringValue(v?.plate),
+      description: cleanStringValue(v?.description),
+    }));
+  } else if (profile?.carPlate || profile?.carDescription) {
+    vehicles = [
+      {
+        plate: cleanStringValue(profile.carPlate),
+        description: cleanStringValue(profile.carDescription),
+      },
+    ];
+  }
 
   return {
-    apartment: cleanStringValue(profile.apartment),
-    entrance: cleanStringValue(profile.entrance),
-    floor: cleanStringValue(profile.floor),
+    apartment: cleanStringValue(profile?.apartment),
+    entrance: cleanStringValue(profile?.entrance),
+    floor: cleanStringValue(profile?.floor),
     vehicles: vehicles.length > 0 ? vehicles : [{ plate: '', description: '' }],
-    alertsEnabled: profile.alertsEnabled ?? true,
+    alertsEnabled: profile?.alertsEnabled ?? true,
   };
 }
 
@@ -154,9 +164,25 @@ export function App() {
       if (firstChatId) setChatId(firstChatId);
     }
 
-    setForm(fromProfile(profile));
+    const rawVehicles = (res as { vehicles?: Array<{ plate?: string | null; description?: string | null }> })?.vehicles ?? profile?.vehicles;
+    const loadedVehicles: VehicleState[] = Array.isArray(rawVehicles) && rawVehicles.length > 0
+      ? rawVehicles.map((v) => ({
+          plate: cleanStringValue(v?.plate),
+          description: cleanStringValue(v?.description),
+        }))
+      : [];
+
+    setForm((current) => {
+      const currentValidVehicles = current.vehicles.filter((v) => v.plate.trim() || v.description.trim());
+      const vehiclesToUse = currentValidVehicles.length > 0
+        ? current.vehicles
+        : (loadedVehicles.length > 0 ? loadedVehicles : [{ plate: '', description: '' }]);
+      return fromProfile(profile, vehiclesToUse);
+    });
     setPhase('ready');
-    if (!memberStatus) {
+    if (memberHomes.length === 0) {
+      setMessage('Вы пока не состоите в домовом чате. Настройте автомобили или вступите в чат дома');
+    } else if (!memberStatus) {
       setMessage(`Для работы бота необходимо вступить в чат «${res?.homeChatTitle || 'Домовой чат'}»`);
     } else {
       setMessage(profile ? 'Профиль заполнен' : 'Заполните данные для персональных уведомлений');
@@ -176,11 +202,12 @@ export function App() {
     }
     if (isDemoMode) {
       if (existingHome) {
+        const currentVehicles = form.vehicles;
         if (targetChatId === '-79396775944382') {
-          setForm(createEmptyForm());
-          setMessage('Заполните данные для персональных уведомлений');
+          setForm({ apartment: '101', entrance: '1', floor: '2', vehicles: currentVehicles, alertsEnabled: true });
+          setMessage('Профиль заполнен');
         } else {
-          setForm({ apartment: '54', entrance: '3', floor: '8', vehicles: [{ plate: 'A123BC77', description: 'Белая Toyota Camry' }], alertsEnabled: true });
+          setForm({ apartment: '54', entrance: '3', floor: '8', vehicles: currentVehicles, alertsEnabled: true });
           setMessage('Профиль заполнен');
         }
       }
@@ -255,6 +282,10 @@ export function App() {
       setDisplayName('Ростислав Затопляев');
       const demoNotMember = urlParams.get('not_member') === '1' || hashParams.get('not_member') === '1';
       const demoChat2Only = urlParams.get('chat2_only') === '1' || hashParams.get('chat2_only') === '1';
+      const demoVehicles: VehicleState[] = [
+        { plate: 'A123BC77', description: 'Белая Toyota Camry' },
+        { plate: 'B777BB77', description: 'Черный BMW' },
+      ];
       if (demoNotMember) {
         setAvailableHomes([
           { chatId: '-79181109403700', title: 'Тестовый дом', isMember: false },
@@ -262,7 +293,13 @@ export function App() {
         ]);
         setChatId('-79181109403700');
         setIsMember(false);
-        setForm(createEmptyForm());
+        setForm({
+          apartment: '',
+          entrance: '',
+          floor: '',
+          vehicles: demoVehicles,
+          alertsEnabled: true,
+        });
         setMessage('Вступите в чат дома для работы бота');
       } else if (demoChat2Only) {
         setAvailableHomes([
@@ -275,7 +312,7 @@ export function App() {
           apartment: '101',
           entrance: '1',
           floor: '2',
-          vehicles: [{ plate: 'B777BB77', description: 'BMW' }],
+          vehicles: demoVehicles,
           alertsEnabled: true,
         });
         setMessage('Профиль заполнен');
@@ -290,7 +327,7 @@ export function App() {
           apartment: '54',
           entrance: '3',
           floor: '8',
-          vehicles: [{ plate: 'A123BC77', description: 'Белая Toyota Camry' }],
+          vehicles: demoVehicles,
           alertsEnabled: true,
         });
         setMessage('Профиль заполнен');
@@ -368,11 +405,48 @@ export function App() {
     }));
   }
 
+  async function saveVehiclesOnly() {
+    setPhase('saving');
+    setMessage('Сохраняем автомобили…');
+    try {
+      if (isDemoMode) {
+        setTimeout(() => {
+          setPhase('ready');
+          setMessage('Автомобили сохранены (демо-режим)');
+        }, 400);
+        return;
+      }
+      const validVehicles = form.vehicles.filter((v) => v.plate.trim() || v.description.trim());
+      const res = await api<{ vehicles: Array<{ plate?: string | null; description?: string | null }> }>('/api/vehicles', {
+        method: 'PUT',
+        body: JSON.stringify({
+          vehicles: validVehicles.map((v) => ({
+            plate: v.plate.trim() || null,
+            description: v.description.trim() || null,
+          })),
+        }),
+      });
+      const saved = res?.vehicles && res.vehicles.length > 0
+        ? res.vehicles.map((v) => ({ plate: cleanStringValue(v?.plate), description: cleanStringValue(v?.description) }))
+        : (validVehicles.length > 0 ? validVehicles : [{ plate: '', description: '' }]);
+      setForm((current) => ({ ...current, vehicles: saved }));
+      setPhase('ready');
+      setMessage('Автомобили сохранены в профиле');
+    } catch (error) {
+      setPhase('error');
+      setMessage(error instanceof Error ? error.message : 'Не удалось сохранить автомобили');
+    }
+  }
+
   async function save(event: FormEvent) {
     event.preventDefault();
+    if (memberHomes.length === 0) {
+      await saveVehiclesOnly();
+      return;
+    }
     if (isMember === false) {
       setPhase('error');
-      setMessage(`Для сохранения профиля необходимо сначала вступить в домовой чат «${homeChatTitle}»`);
+      setMessage(`Для сохранения адреса необходимо сначала вступить в домовой чат «${homeChatTitle}»`);
       return;
     }
     setPhase('saving');
@@ -409,7 +483,7 @@ export function App() {
           alertsEnabled: form.alertsEnabled,
         }),
       });
-      setForm(fromProfile(profile));
+      setForm((current) => fromProfile(profile, current.vehicles));
       setPhase('ready');
       setMessage('Профиль сохранён');
     } catch (error) {
@@ -420,8 +494,6 @@ export function App() {
 
   const memberHomes = availableHomes.filter((home) => home.isMember === true);
   const isStandaloneBrowser = phase === 'error' && !displayName;
-  const isNotMemberAnywhere = phase === 'ready' && (isMember === false || memberHomes.length === 0);
-  const disabled = phase === 'loading' || phase === 'saving' || isStandaloneBrowser || isNotMemberAnywhere;
 
   return (
     <main className="page">
@@ -526,12 +598,12 @@ export function App() {
         <span className="user-name">{displayName || 'Жилец'}</span>
       </div>
 
-      {phase === 'ready' && memberHomes.length === 0 ? (
+      {phase === 'ready' && memberHomes.length === 0 && (
         <aside className="not-member-card" role="alert" aria-label="Информация о членстве в чате">
           <div className="not-member-card__icon" aria-hidden="true">!</div>
           <h2 className="not-member-card__title">Вы пока не состоите ни в одном домовом чате</h2>
           <p className="not-member-card__text">
-            Чтобы сервис «Тихий Чат» мог присылать вам персональные уведомления и сводки, вступите в домовой чат вашего дома.
+            Чтобы сервис «Тихий Чат» мог присылать вам персональные уведомления по дому, вступите в домовой чат вашего дома. Вы можете заранее настроить ваши автомобили ниже.
           </p>
           <div className="not-member-card__actions">
             {homeChatUrl && (
@@ -554,10 +626,11 @@ export function App() {
             </button>
           </div>
         </aside>
-      ) : (
-        <form className="form" onSubmit={(event) => void save(event)}>
+      )}
+
+      <form className="form" onSubmit={(event) => void save(event)}>
           {/* Warning if not a member */}
-          {isMember === false && (
+          {memberHomes.length > 0 && isMember === false && (
             <aside className="membership-warning" role="alert" aria-label="Предупреждение о членстве в чате">
               <div className="membership-warning__header">
                 <div className="membership-warning__icon" aria-hidden="true">!</div>
@@ -590,7 +663,7 @@ export function App() {
           )}
 
           {/* Section 01 - Адрес */}
-          <section aria-labelledby="section-01-title">
+          <section aria-labelledby="section-01-title" style={memberHomes.length === 0 ? { opacity: 0.65 } : undefined}>
             <div className="section-header">
               <span className="section-number section-number--active">01</span>
               <div className="section-separator" aria-hidden="true" />
@@ -598,7 +671,9 @@ export function App() {
                 <h2 id="section-01-title" className="section-title">
                   Адрес
                 </h2>
-                <span className="section-subtitle">Обязательные данные</span>
+                <span className="section-subtitle">
+                  {memberHomes.length === 0 ? 'Требуется участие в чате дома' : 'Обязательные данные'}
+                </span>
               </div>
             </div>
 
@@ -630,48 +705,51 @@ export function App() {
               </div>
             )}
 
-          <label className="field">
-            <span className="field-label">Квартира</span>
-            <input
-              required
-              inputMode="numeric"
-              min="1"
-              max="9999"
-              placeholder="54"
-              value={form.apartment}
-              onChange={(e) => change('apartment', e.target.value)}
-              className="text-input"
-            />
-          </label>
-
-          <div className="grid-two">
             <label className="field">
-              <span className="field-label">Подъезд</span>
+              <span className="field-label">Квартира</span>
               <input
-                required
+                required={memberHomes.length > 0}
+                disabled={memberHomes.length === 0}
                 inputMode="numeric"
                 min="1"
-                max="999"
-                placeholder="3"
-                value={form.entrance}
-                onChange={(e) => change('entrance', e.target.value)}
+                max="9999"
+                placeholder={memberHomes.length === 0 ? 'Вступите в чат дома' : '54'}
+                value={form.apartment}
+                onChange={(e) => change('apartment', e.target.value)}
                 className="text-input"
               />
             </label>
-            <label className="field">
-              <span className="field-label">Этаж</span>
-              <input
-                inputMode="numeric"
-                min="-9"
-                max="999"
-                placeholder="8"
-                value={form.floor}
-                onChange={(e) => change('floor', e.target.value)}
-                className="text-input"
-              />
-            </label>
-          </div>
-        </section>
+
+            <div className="grid-two">
+              <label className="field">
+                <span className="field-label">Подъезд</span>
+                <input
+                  required={memberHomes.length > 0}
+                  disabled={memberHomes.length === 0}
+                  inputMode="numeric"
+                  min="1"
+                  max="999"
+                  placeholder={memberHomes.length === 0 ? '—' : '3'}
+                  value={form.entrance}
+                  onChange={(e) => change('entrance', e.target.value)}
+                  className="text-input"
+                />
+              </label>
+              <label className="field">
+                <span className="field-label">Этаж</span>
+                <input
+                  disabled={memberHomes.length === 0}
+                  inputMode="numeric"
+                  min="-9"
+                  max="999"
+                  placeholder={memberHomes.length === 0 ? '—' : '8'}
+                  value={form.floor}
+                  onChange={(e) => change('floor', e.target.value)}
+                  className="text-input"
+                />
+              </label>
+            </div>
+          </section>
 
         <div className="divider" />
 
@@ -682,9 +760,9 @@ export function App() {
             <div className="section-separator" aria-hidden="true" />
             <div className="section-title-wrap">
               <h2 id="section-02-title" className="section-title">
-                Автомобили
+                Автомобили (Гараж)
               </h2>
-              <span className="section-subtitle">Можно пропустить</span>
+              <span className="section-subtitle">Единый список для всех ваших домов</span>
             </div>
           </div>
 
@@ -852,14 +930,16 @@ export function App() {
         <button
           type="submit"
           className="submit-button"
-          disabled={disabled || isMember === false}
-          title={isMember === false ? `Сначала вступите в домовой чат «${homeChatTitle}»` : undefined}
+          disabled={phase === 'loading' || phase === 'saving' || isStandaloneBrowser || (memberHomes.length > 0 && isMember === false)}
+          title={isMember === false && memberHomes.length > 0 ? `Сначала вступите в домовой чат «${homeChatTitle}»` : undefined}
         >
           {phase === 'saving'
             ? 'Сохранение…'
-            : isMember === false
-              ? 'Сначала вступите в домовой чат'
-              : 'Сохранить изменения'}
+            : memberHomes.length === 0
+              ? 'Сохранить автомобили'
+              : isMember === false
+                ? 'Сначала вступите в домовой чат'
+                : 'Сохранить изменения'}
         </button>
 
         {/* Footer */}
@@ -881,7 +961,6 @@ export function App() {
           <span>Данные видит только бот «Тихий Чат»</span>
         </div>
       </form>
-    )}
     </main>
   );
 }

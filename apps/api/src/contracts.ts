@@ -1,4 +1,4 @@
-import type { MaxUpdate, MaxUser, ResidentProfile, ResidentProfileInput } from '@quiet-chat/shared';
+import type { MaxUpdate, MaxUser, ResidentProfile, ResidentProfileInput, VehicleItem } from '@quiet-chat/shared';
 
 export interface ProfileStore {
   upsertUser(user: MaxUser): Promise<void>;
@@ -10,6 +10,8 @@ export interface ProfileStore {
     verifiedAt: Date,
   ): Promise<ResidentProfile>;
   deleteProfile(maxUserId: bigint, maxChatId: bigint): Promise<boolean>;
+  getUserVehicles?(maxUserId: bigint): Promise<VehicleItem[]>;
+  saveUserVehicles?(maxUserId: bigint, vehicles: VehicleItem[]): Promise<VehicleItem[]>;
   getUser?(maxUserId: bigint): Promise<{ displayName: string | null } | null>;
   getHome?(maxChatId: bigint): Promise<{ title: string; chatUrl: string | null } | null>;
   getActiveHomes?(): Promise<Array<{ maxChatId: bigint; title: string; chatUrl: string | null }>>;

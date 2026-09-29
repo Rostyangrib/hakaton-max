@@ -43,6 +43,12 @@ export const users = pgTable('users', {
   botStoppedAt: timestamp('bot_stopped_at', { withTimezone: true }),
   consentVersion: varchar('consent_version', { length: 32 }),
   consentAcceptedAt: timestamp('consent_accepted_at', { withTimezone: true }),
+  vehicles: jsonb('vehicles').$type<Array<{
+    id?: string | undefined;
+    plate?: string | null | undefined;
+    plateNormalized?: string | null | undefined;
+    description?: string | null | undefined;
+  }>>(),
   ...timestamps,
 });
 

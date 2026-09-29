@@ -358,3 +358,38 @@ describe('token auth route', () => {
   });
 });
 
+describe('vehicles routes', () => {
+  it('allows reading and updating user vehicles independently of home chat', async () => {
+    const savedVehicles = [{ plate: 'А123ВС77', description: 'Camry' }];
+    const profileServices = services({
+      profiles: {
+        ...services().profiles,
+        getUserVehicles: vi.fn(async () => savedVehicles),
+        saveUserVehicles: vi.fn(async (_userId, vehicles) => vehicles),
+      },
+    });
+    const app = await buildApp({ config: config(), databaseCheck: async () => {}, services: profileServices });
+    apps.push(app);
+
+    const token = createSession(10n, 'session-secret-with-enough-entropy', 3_600);
+    const authHeaders = { authorization: `Bearer ${token}` };
+
+    const getRes = await app.inject({ method: 'GET', url: '/api/vehicles', headers: authHeaders });
+    expect(getRes.statusCode).toBe(200);
+    expect(getRes.json().data.vehicles).toEqual(savedVehicles);
+
+    const newVehicles = [
+      { plate: 'А123ВС77', description: 'Camry' },
+      { plate: 'В777ВВ77', description: 'BMW' },
+    ];
+    const putRes = await app.inject({
+      method: 'PUT',
+      url: '/api/vehicles',
+      headers: authHeaders,
+      payload: { vehicles: newVehicles },
+    });
+    expect(putRes.statusCode).toBe(200);
+    expect(profileServices.profiles.saveUserVehicles).toHaveBeenCalledWith(10n, newVehicles);
+  });
+});
+

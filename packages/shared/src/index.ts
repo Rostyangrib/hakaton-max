@@ -62,8 +62,14 @@ export const profileResponseSchema = z.object({
   homeChatTitle: z.string().nullable().optional(),
   homeChatUrl: z.string().nullable().optional(),
   availableHomes: z.array(availableHomeSchema).optional(),
+  vehicles: z.array(vehicleItemSchema).optional(),
 });
 
+export const userVehiclesInputSchema = z.object({
+  vehicles: z.array(vehicleItemSchema),
+});
+
+export type UserVehiclesInput = z.infer<typeof userVehiclesInputSchema>;
 export type ProfileResponse = z.infer<typeof profileResponseSchema> & Partial<ResidentProfile>;
 
 const userIdField = z.union([
