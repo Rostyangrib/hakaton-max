@@ -96,5 +96,23 @@ describe('fromProfile form state conversion', () => {
       { plate: '', description: '' },
     ]);
   });
+
+  it('preserves overrideVehicles when provided even if profile vehicles differ or profile is null', () => {
+    const overrideVehicles = [{ plate: 'X999XX99', description: 'Global Porsche' }];
+    const profile = {
+      apartment: 10,
+      entrance: 1,
+      floor: 2,
+      vehicles: [{ plate: 'A123BC77', description: 'Local Camry' }],
+    } as unknown as ResidentProfile;
+
+    const formFromProfile = fromProfile(profile, overrideVehicles);
+    expect(formFromProfile.apartment).toBe('10');
+    expect(formFromProfile.vehicles).toEqual([{ plate: 'X999XX99', description: 'Global Porsche' }]);
+
+    const formFromNull = fromProfile(null, overrideVehicles);
+    expect(formFromNull.apartment).toBe('');
+    expect(formFromNull.vehicles).toEqual([{ plate: 'X999XX99', description: 'Global Porsche' }]);
+  });
 });
 

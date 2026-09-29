@@ -13,9 +13,13 @@ describe('Postgres repositories', () => {
         entrance: 3,
         carPlateNormalized: null,
         carDescription: null,
+        properties: [],
+        vehicles: [{ plate: 'O000OO00', description: 'Old car' }],
+        userVehicles: [{ plate: 'A123BC77', description: 'Global car' }],
       },
     ]));
-    const mockFrom = vi.fn().mockReturnValue({ where: mockWhere });
+    const mockLeftJoin = vi.fn().mockReturnValue({ where: mockWhere });
+    const mockFrom = vi.fn().mockReturnValue({ leftJoin: mockLeftJoin, where: mockWhere });
     const mockSelect = vi.fn().mockReturnValue({ from: mockFrom });
 
     const fakeDb = {
@@ -28,8 +32,10 @@ describe('Postgres repositories', () => {
 
     expect(profiles).toHaveLength(1);
     expect(profiles[0]?.maxUserId).toBe(215608884n);
+    expect(profiles[0]?.vehicles).toEqual([{ plate: 'A123BC77', description: 'Global car' }]);
     expect(mockSelect).toHaveBeenCalled();
     expect(mockFrom).toHaveBeenCalled();
+    expect(mockLeftJoin).toHaveBeenCalled();
     expect(mockWhere).toHaveBeenCalled();
   });
 

@@ -2,7 +2,7 @@ import { and, eq } from 'drizzle-orm';
 
 import type { createDatabase } from '@quiet-chat/database';
 import { homes, residentProfiles, users, webhookEvents } from '@quiet-chat/database';
-import { normalizeCarPlate, type MaxUpdate, type MaxUser } from '@quiet-chat/shared';
+import { normalizeCarPlate, type MaxUpdate, type MaxUser, type VehicleItem } from '@quiet-chat/shared';
 
 import type { ProfileStore, WebhookInbox } from './contracts.js';
 
@@ -38,6 +38,12 @@ export function createPersistence(db: Database): ProfileStore & WebhookInbox {
       .limit(1);
     if (!profile) return null;
 
+    const [user] = await db
+      .select({ vehicles: users.vehicles })
+      .from(users)
+      .where(eq(users.maxUserId, maxUserId))
+      .limit(1);
+
     const properties = profile.properties && profile.properties.length > 0
       ? profile.properties
       : [{
@@ -46,22 +52,24 @@ export function createPersistence(db: Database): ProfileStore & WebhookInbox {
           floor: profile.floor,
         }];
 
-    const vehicles = profile.vehicles && profile.vehicles.length > 0
-      ? profile.vehicles
-      : (profile.carPlateRaw || profile.carDescription
-        ? [{
-            plate: profile.carPlateRaw,
-            plateNormalized: profile.carPlateNormalized,
-            description: profile.carDescription,
-          }]
-        : []);
+    const vehicles = (user?.vehicles && user.vehicles.length > 0)
+      ? user.vehicles
+      : (profile.vehicles && profile.vehicles.length > 0
+        ? profile.vehicles
+        : (profile.carPlateRaw || profile.carDescription
+          ? [{
+              plate: profile.carPlateRaw,
+              plateNormalized: profile.carPlateNormalized,
+              description: profile.carDescription,
+            }]
+          : []));
 
     return {
       apartment: profile.apartment,
       entrance: profile.entrance,
       floor: profile.floor,
-      carPlate: profile.carPlateRaw,
-      carDescription: profile.carDescription,
+      carPlate: vehicles[0]?.plate ?? profile.carPlateRaw,
+      carDescription: vehicles[0]?.description ?? profile.carDescription,
       properties,
       vehicles,
       alertsEnabled: profile.alertsEnabled,
@@ -80,6 +88,67 @@ export function createPersistence(db: Database): ProfileStore & WebhookInbox {
           target: users.maxUserId,
           set: { displayName: displayName(user), updatedAt: new Date() },
         });
+    },
+    async getUserVehicles(maxUserId: bigint) {
+      const [user] = await db
+        .select({ vehicles: users.vehicles })
+        .from(users)
+        .where(eq(users.maxUserId, maxUserId))
+        .limit(1);
+      if (user?.vehicles && user.vehicles.length > 0) {
+        return user.vehicles;
+      }
+      const [profile] = await db
+        .select({
+          vehicles: residentProfiles.vehicles,
+          carPlateRaw: residentProfiles.carPlateRaw,
+          carPlateNormalized: residentProfiles.carPlateNormalized,
+          carDescription: residentProfiles.carDescription,
+        })
+        .from(residentProfiles)
+        .where(eq(residentProfiles.maxUserId, maxUserId))
+        .limit(1);
+      if (profile?.vehicles && profile.vehicles.length > 0) {
+        return profile.vehicles;
+      }
+      if (profile?.carPlateRaw || profile?.carDescription) {
+        return [{
+          plate: profile.carPlateRaw,
+          plateNormalized: profile.carPlateNormalized,
+          description: profile.carDescription,
+        }];
+      }
+      return [];
+    },
+    async saveUserVehicles(maxUserId: bigint, rawVehicles: VehicleItem[]) {
+      const vehicles = rawVehicles.map((v) => ({
+        id: v.id,
+        plate: cleanNullable(v.plate),
+        plateNormalized: cleanNullable(v.plate) ? normalizeCarPlate(v.plate!) : null,
+        description: cleanNullable(v.description),
+      }));
+
+      await db
+        .update(users)
+        .set({ vehicles, updatedAt: new Date() })
+        .where(eq(users.maxUserId, maxUserId));
+
+      const primaryCarPlate = vehicles.find((v) => v.plate)?.plate ?? null;
+      const primaryCarPlateNormalized = vehicles.find((v) => v.plateNormalized)?.plateNormalized ?? (primaryCarPlate ? normalizeCarPlate(primaryCarPlate) : null);
+      const primaryCarDescription = vehicles.find((v) => v.description)?.description ?? null;
+
+      await db
+        .update(residentProfiles)
+        .set({
+          vehicles,
+          carPlateRaw: primaryCarPlate,
+          carPlateNormalized: primaryCarPlateNormalized,
+          carDescription: primaryCarDescription,
+          updatedAt: new Date(),
+        })
+        .where(eq(residentProfiles.maxUserId, maxUserId));
+
+      return vehicles;
     },
     async getProfile(maxUserId, maxChatId) {
       const homeId = await findHomeId(maxChatId);
@@ -145,6 +214,26 @@ export function createPersistence(db: Database): ProfileStore & WebhookInbox {
         target: [residentProfiles.homeId, residentProfiles.maxUserId],
         set: values,
       });
+
+      // Update users.vehicles and sync all resident_profiles for this user
+      if (vehicles.length > 0 || input.vehicles !== undefined) {
+        await db
+          .update(users)
+          .set({ vehicles, updatedAt: new Date() })
+          .where(eq(users.maxUserId, maxUserId));
+
+        await db
+          .update(residentProfiles)
+          .set({
+            vehicles,
+            carPlateRaw: primaryCarPlate,
+            carPlateNormalized: primaryCarPlateNormalized,
+            carDescription: primaryCarDescription,
+            updatedAt: new Date(),
+          })
+          .where(eq(residentProfiles.maxUserId, maxUserId));
+      }
+
       const profile = await readProfile(maxUserId, homeId);
       if (!profile) throw new Error('Unable to save profile');
       return profile;

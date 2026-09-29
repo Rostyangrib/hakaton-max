@@ -9,6 +9,7 @@ import type { AppConfig } from '@quiet-chat/config';
 import {
   maxUpdateSchema,
   residentProfileInputSchema,
+  userVehiclesInputSchema,
   type ApiEnvelope,
   type AvailableHome,
   type HealthResponse,
@@ -135,6 +136,18 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
     });
     return reply.code(200).send(envelope(request.id, { displayName: user?.displayName ?? 'Жилец', sessionToken: parsed.data.token }));
   });
+
+  function getSessionUserId(
+    request: { cookies: Record<string, string | undefined>; headers?: Record<string, unknown> },
+  ): bigint | null {
+    const { SESSION_SECRET: secret } = dependencies.config;
+    if (!secret) return null;
+    const authHeader = typeof request.headers?.authorization === 'string' ? request.headers.authorization : undefined;
+    const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : undefined;
+    const token = bearerToken || request.cookies[sessionCookie];
+    if (!token) return null;
+    return verifySession(token, secret);
+  }
 
   async function profileContext(
     request: { id: string; cookies: Record<string, string | undefined>; headers?: Record<string, unknown>; query?: unknown; body?: unknown },
@@ -275,15 +288,49 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
       }
     }
 
+    const userVehicles = dependencies.services!.profiles.getUserVehicles
+      ? await dependencies.services!.profiles.getUserVehicles(context.maxUserId)
+      : (finalProfile?.vehicles ?? []);
+
+    const updatedProfile = finalProfile
+      ? {
+          ...finalProfile,
+          vehicles: userVehicles.length > 0 ? userVehicles : (finalProfile.vehicles ?? []),
+        }
+      : null;
+
     return reply.code(200).send(envelope(request.id, {
       chatId: finalChatId,
-      profile: finalProfile ?? null,
+      profile: updatedProfile,
       isMember: finalIsMember,
       homeChatTitle: finalTitle,
       homeChatUrl: finalUrl,
       availableHomes,
-      ...(finalProfile ? finalProfile : {}),
+      vehicles: userVehicles,
+      ...(updatedProfile ? updatedProfile : {}),
     }));
+  });
+
+  app.get('/api/vehicles', async (request, reply) => {
+    if (!dependencies.services) return fail(reply, 503, request.id, 'SERVICE_UNAVAILABLE', 'Service unavailable');
+    const maxUserId = getSessionUserId(request);
+    if (!maxUserId) return fail(reply, 401, request.id, 'UNAUTHORIZED', 'MAX session is missing or expired');
+    const vehicles = dependencies.services.profiles.getUserVehicles
+      ? await dependencies.services.profiles.getUserVehicles(maxUserId)
+      : [];
+    return reply.code(200).send(envelope(request.id, { vehicles }));
+  });
+
+  app.put('/api/vehicles', async (request, reply) => {
+    if (!dependencies.services) return fail(reply, 503, request.id, 'SERVICE_UNAVAILABLE', 'Service unavailable');
+    const maxUserId = getSessionUserId(request);
+    if (!maxUserId) return fail(reply, 401, request.id, 'UNAUTHORIZED', 'MAX session is missing or expired');
+    const parsed = userVehiclesInputSchema.safeParse(request.body);
+    if (!parsed.success) return fail(reply, 400, request.id, 'INVALID_VEHICLES', 'Vehicles data is invalid');
+    const vehicles = dependencies.services.profiles.saveUserVehicles
+      ? await dependencies.services.profiles.saveUserVehicles(maxUserId, parsed.data.vehicles)
+      : parsed.data.vehicles;
+    return reply.code(200).send(envelope(request.id, { vehicles }));
   });
 
   app.put('/api/profile', async (request, reply) => {

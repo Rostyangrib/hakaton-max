@@ -1,7 +1,6 @@
 import { and, eq, isNotNull } from 'drizzle-orm';
 
-import type { createDatabase } from '@quiet-chat/database';
-import { homes, messages, residentProfiles } from '@quiet-chat/database';
+import { homes, messages, residentProfiles, users, type createDatabase } from '@quiet-chat/database';
 
 import type {
   AlertProfile,
@@ -134,7 +133,7 @@ export class PostgresMessageRepository implements MessageRepository {
   }
 
   async findAlertProfiles(homeId: string, _senderUserId?: bigint): Promise<AlertProfile[]> {
-    return this.database.db
+    const rows = await this.database.db
       .select({
         id: residentProfiles.id,
         maxUserId: residentProfiles.maxUserId,
@@ -144,13 +143,28 @@ export class PostgresMessageRepository implements MessageRepository {
         carDescription: residentProfiles.carDescription,
         properties: residentProfiles.properties,
         vehicles: residentProfiles.vehicles,
+        userVehicles: users.vehicles,
       })
       .from(residentProfiles)
+      .leftJoin(users, eq(residentProfiles.maxUserId, users.maxUserId))
       .where(and(
         eq(residentProfiles.homeId, homeId),
         eq(residentProfiles.alertsEnabled, true),
         isNotNull(residentProfiles.membershipVerifiedAt),
       ));
+
+    return rows.map((row) => ({
+      id: row.id,
+      maxUserId: row.maxUserId,
+      apartment: row.apartment,
+      entrance: row.entrance,
+      carPlateNormalized: row.carPlateNormalized,
+      carDescription: row.carDescription,
+      properties: row.properties,
+      vehicles: (row.userVehicles && row.userVehicles.length > 0)
+        ? row.userVehicles
+        : row.vehicles,
+    }));
   }
 
   async reserveDelivery(input: {
