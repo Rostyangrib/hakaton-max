@@ -54,7 +54,7 @@ docker compose up --build
 | `HOST` | Хост для биндинга API | `0.0.0.0` |
 | `WEB_ORIGIN` | Разрешенный адрес для CORS | `http://localhost:5173` |
 | `DATABASE_URL` | Подключение к PostgreSQL | `postgresql://quietchat:quietchat@postgres:5432/quietchat` |
-| `MAX_BOT_TOKEN` | Токен бота в MAX | Выдается BotFather платформы MAX |
+| `MAX_BOT_TOKEN` | Токен бота в MAX | Выдается платформой MAX |
 | `MAX_WEBHOOK_SECRET` | Заголовок для проверки входящих вебхуков MAX | Произвольная секретная строка |
 | `MAX_HOME_CHAT_ID` | Идентификатор основного домового чата | `-79181109403700` |
 | `MAX_MINI_APP_URL` | Публичный HTTPS-адрес Mini App | `http://localhost:5173` |
