@@ -218,6 +218,48 @@ describe('deduplicateAndCleanCategories and cross-category exclusivity', () => {
     expect(cleaned.community).toHaveLength(1);
     expect(cleaned.community[0]?.text).toBe('Собрание жильцов дома в воскресенье');
   });
+
+  it('splits compound item combining flooding complaint and found keys into housing and community', () => {
+    const rawCategories = {
+      housing: [],
+      yard: [],
+      community: [
+        {
+          text: 'Соседи жалуются на затопление [22919a14-0f27-42dc-9607-7016cc48217a], в подъезде найдены ключи [6a2ba82b-f574-4403-924b-4e66f4ba20b2].',
+          sourceMessageIds: ['22919a14-0f27-42dc-9607-7016cc48217a', '6a2ba82b-f574-4403-924b-4e66f4ba20b2'],
+        },
+      ],
+    };
+
+    const cleaned = deduplicateAndCleanCategories(rawCategories);
+
+    expect(cleaned.housing).toHaveLength(1);
+    expect(cleaned.housing[0]?.text).toContain('Соседи жалуются на затопление');
+    expect(cleaned.community).toHaveLength(1);
+    expect(cleaned.community[0]?.text).toContain('В подъезде найдены ключи');
+  });
+
+  it('eliminates semantic near-duplicates with minor phrasing differences', () => {
+    const rawCategories = {
+      housing: [
+        { text: '67 квартира вы топите соседей снизу', sourceMessageIds: ['m1'] },
+      ],
+      yard: [],
+      community: [
+        { text: '67 квартира вы топите соседей снизу быстро сюда', sourceMessageIds: ['m1'] },
+      ],
+    };
+
+    const cleaned = deduplicateAndCleanCategories(rawCategories);
+    expect(cleaned.housing).toHaveLength(1);
+    expect(cleaned.housing[0]?.text).toBe('67 квартира вы топите соседей снизу');
+    expect(cleaned.community).toHaveLength(0);
+  });
+
+  it('strips parenthesized citations like (сообщение 1) and cleans empty parentheses', () => {
+    const raw = cleanItemText('Замечания по парковке (сообщения 1, 2).');
+    expect(raw.cleanText).toBe('Замечания по парковке.');
+  });
 });
 
 

@@ -99,7 +99,9 @@ const systemPrompt = [
   '- Сообщения об автомобилях, парковке, блокировке выезда/проезда, шлагбауме или уборке снега ВСЕГДА относи к yard (Двор и транспорт)!',
   '- Категория community (соседские дела и находки) — ТОЛЬКО для находок/потерь вещей и ключей, взаимопомощи соседей, опросов и объявлений, не связанных с ЖКХ или транспортом.',
   '- КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО дублировать одно и то же сообщение или событие в нескольких категориях!',
-  'ПРАВИЛА ОФОРМЛЕНИЯ ТЕКСТА:',
+  'ПРАВИЛА ОФОРМЛЕНИЯ ПУНКТОВ:',
+  '- Каждый пункт (элемент массива) должен описывать строго ОДНО конкретное событие или происшествие.',
+  '- КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО объединять в один пункт разные события (например, жалобу на затопление и найденные ключи). Разделяй их на отдельные элементы в соответствующие категории!',
   '- В поле text пиши ТОЛЬКО суть события на грамотном русском языке для жильцов дома.',
   '- КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО включать в поле text любые идентификаторы, ID сообщений, номера или квадратные скобки (никаких [1], [id], [#2] и т.п.).',
   '- Номера сообщений-источников указывай ИСКЛЮЧИТЕЛЬНО в отдельном массиве sourceMessageIds (например: "sourceMessageIds": ["1"]).',
@@ -110,6 +112,7 @@ const reducePrompt = [
   'Объедини промежуточные сводки в единую сводку по дому.',
   'Удали дубликаты, объедини одинаковые факты и сохрани все ссылки на номера сообщений в sourceMessageIds.',
   'Соблюдай приоритет категорий: housing > yard > community. Не дублируй события между категориями!',
+  'Каждый пункт должен описывать строго одно событие. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО объединять разнородные события в один пункт.',
   'КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО включать идентификаторы и скобки в поле text.',
 ].join(' ');
 
@@ -230,13 +233,33 @@ export class YandexGptClient {
       mapped.push(summary);
     }
 
-    const categories = mapped.length === 1 ? mapped[0] : await this.complete([
-      { role: 'system', text: systemPrompt },
-      {
-        role: 'user',
-        text: `${reducePrompt}\n${JSON.stringify(mapped)}`,
-      },
-    ]);
+    let categories: SummaryCategories;
+    if (mapped.length === 1) {
+      categories = mapped[0]!;
+    } else {
+      try {
+        categories = await this.complete([
+          { role: 'system', text: systemPrompt },
+          {
+            role: 'user',
+            text: `${reducePrompt}\n${JSON.stringify(mapped)}`,
+          },
+        ]);
+      } catch (err) {
+        console.warn(JSON.stringify({
+          level: 'warn',
+          service: 'worker',
+          message: 'YandexGPT reduce step failed, falling back to programmatic merge',
+          error: err instanceof Error ? err.message : String(err),
+        }));
+        const merged: SummaryCategories = {
+          housing: mapped.flatMap((m) => m.housing),
+          yard: mapped.flatMap((m) => m.yard),
+          community: mapped.flatMap((m) => m.community),
+        };
+        categories = deduplicateAndCleanCategories(merged);
+      }
+    }
     if (!categories) throw new Error('YandexGPT returned no summary');
     const allowedIds = new Set(messages.flatMap((message) => message.sourceMessageIds ?? [message.id]));
     return assertValidSources(categories, allowedIds);
@@ -284,13 +307,13 @@ export class YandexGptClient {
     messages: Array<{ role: 'system' | 'user'; text: string }>,
     idMap?: Map<string, string>,
   ): Promise<SummaryCategories> {
-    return this.sendWithRetry(messages, true, false, idMap);
+    return this.sendWithRetry(messages, true, 0, idMap);
   }
 
   private async sendWithRetry(
     messages: Array<{ role: 'system' | 'user'; text: string }>,
     withSchema: boolean,
-    isRetry: boolean,
+    retryCount: number,
     idMap?: Map<string, string>,
   ): Promise<SummaryCategories> {
     const completionOptions: Record<string, unknown> = {
@@ -315,7 +338,7 @@ export class YandexGptClient {
       modelUri: this.modelUri,
       timeoutMs: this.options.timeoutMs,
       withSchema,
-      isRetry,
+      retryCount,
     }));
 
     const startTime = Date.now();
@@ -338,21 +361,31 @@ export class YandexGptClient {
       elapsedMs: Date.now() - startTime,
     }));
 
-    // Handle 429 Too Many Requests (rate limit) with single retry
-    if (response.status === 429 && !isRetry) {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      return this.sendWithRetry(messages, withSchema, true, idMap);
+    // Handle transient errors: 429 (rate limit) or 500-504 with exponential backoff (up to 2 retries)
+    const isTransient = response.status === 429 || (response.status >= 500 && response.status <= 504);
+    if (isTransient && retryCount < 2) {
+      const delayMs = (retryCount + 1) * 1500;
+      console.warn(JSON.stringify({
+        level: 'warn',
+        service: 'worker',
+        message: 'YandexGPT transient error, retrying',
+        status: response.status,
+        retryCount: retryCount + 1,
+        delayMs,
+      }));
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      return this.sendWithRetry(messages, withSchema, retryCount + 1, idMap);
     }
 
     // Handle 400 Bad Request by retrying without jsonSchema
     if (response.status === 400 && withSchema) {
-      return this.sendWithRetry(messages, false, isRetry, idMap);
+      return this.sendWithRetry(messages, false, retryCount, idMap);
     }
 
     // Handle model not found error by falling back to yandexgpt
     if ((response.status === 404 || response.status === 400) && !this.options.modelUri && this.modelUri !== this.fallbackModelUri) {
       this.modelUri = this.fallbackModelUri;
-      return this.sendWithRetry(messages, withSchema, true, idMap);
+      return this.sendWithRetry(messages, withSchema, retryCount, idMap);
     }
 
     if (!response.ok) {
@@ -367,7 +400,7 @@ export class YandexGptClient {
     const status = first && typeof first.status === 'string' ? first.status : undefined;
 
     if (status === 'ALTERNATIVE_STATUS_CONTENT_FILTER') {
-      if (!isRetry && this.modelUri !== this.fallbackModelUri) {
+      if (retryCount === 0 && this.modelUri !== this.fallbackModelUri) {
         console.warn(JSON.stringify({
           level: 'warn',
           service: 'worker',
@@ -376,7 +409,7 @@ export class YandexGptClient {
           fallbackModelUri: this.fallbackModelUri,
         }));
         this.modelUri = this.fallbackModelUri;
-        return this.sendWithRetry(messages, withSchema, true, idMap);
+        return this.sendWithRetry(messages, withSchema, 1, idMap);
       }
       throw new Error(`YandexGPT returned a non-final response: ${status}`);
     }

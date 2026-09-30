@@ -175,15 +175,34 @@ export class SummaryService {
       latestJob &&
       latestJob.status === 'done' &&
       latestJob.result &&
-      (latestJob.mode !== 'fallback' || !this.model) &&
-      sourceMessages.length > latestJob.messageCount;
+      (latestJob.mode !== 'fallback' || !this.model);
 
     if (canDoIncremental && latestJob.result) {
       const prevResult = latestJob.result;
-      const newMessages = sourceMessages.slice(latestJob.messageCount);
-      const preparedNew = prepareSummaryMessages(newMessages);
 
-      if (preparedNew.length === 0) {
+      // Identify newly arrived messages using lastMessageId or lastMessageSentAt
+      let lastSeenIndex = -1;
+      if (prevResult.lastMessageId) {
+        lastSeenIndex = sourceMessages.findIndex((m) => m.id === prevResult.lastMessageId);
+      }
+      if (lastSeenIndex === -1 && prevResult.lastMessageSentAt) {
+        const lastSent = new Date(prevResult.lastMessageSentAt).getTime();
+        for (let i = sourceMessages.length - 1; i >= 0; i--) {
+          if (sourceMessages[i]!.sentAt.getTime() <= lastSent) {
+            lastSeenIndex = i;
+            break;
+          }
+        }
+      }
+
+      const newMessages =
+        lastSeenIndex !== -1
+          ? sourceMessages.slice(lastSeenIndex + 1)
+          : sourceMessages.length > latestJob.messageCount
+            ? sourceMessages.slice(latestJob.messageCount)
+            : [];
+
+      if (newMessages.length === 0) {
         return {
           ...prevResult,
           messageCount: sourceMessages.length,
@@ -194,6 +213,33 @@ export class SummaryService {
           cached: false,
           homeTitle: home.title,
         };
+      }
+
+      const preparedNew = prepareSummaryMessages(newMessages);
+
+      if (preparedNew.length === 0) {
+        const result: SummaryResult = {
+          ...prevResult,
+          messageCount: sourceMessages.length,
+          filteredCount: sourceMessages.length,
+          savedMinutes: estimateSavedMinutes(sourceMessages.length),
+          periodTo: to.toISOString(),
+          generatedAt: now.toISOString(),
+          cached: false,
+          homeTitle: home.title,
+          lastMessageId: sourceMessages.at(-1)?.id,
+          lastMessageSentAt: sourceMessages.at(-1)?.sentAt.toISOString(),
+        };
+
+        const jobId = await this.repository.createJob({
+          homeId: home.id,
+          requestedBy: maxUserId,
+          from,
+          to,
+          messageCount: sourceMessages.length,
+        });
+        await this.repository.completeJob(jobId, prevResult.mode, result, null);
+        return result;
       }
 
       let newCategories: SummaryCategories;

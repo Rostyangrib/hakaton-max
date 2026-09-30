@@ -10,7 +10,7 @@ export interface SummarySourceMessage {
 
 const greetingOnly = /^(?:всем\s+)?(?:привет|доброе\s+утро|добрый\s+(?:день|вечер)|здравствуйте|спасибо|благодарю)[!,.\s]*$/iu;
 
-const spamTrollFilter = /^(?:дайте\s+контакт\s+альтушки|кто\s+(?:может\s+)?скинуть\s+тг\s+дающей\s+альтушки\??|павел\s+спит\s+с\s+моей\s+девушкой|кто\s+может\s+одолжить\s+соли\??)[!,.\s]*$/iu;
+const spamTrollFilter = /(?:альтушк|одолжить\s+соли|спит\s+с\s+моей\s+девушк|закладк|мефедрон|гашиш)/iu;
 
 export const categoryKeywords: Record<keyof SummaryCategories, RegExp> = {
   housing: /(?:вод[ауые]|свет|электр|отоплен|лифт|труб|протеч|протек|авари|ремонт|сантех|электрик|газ|служб|отключ|топ[яи]|затоп|залив|капает|прорв|стояк|батаре|давлен|котельн|подвал|кровл|крыш|канализац|мусоропровод|домофон|засор|вентшахт|вентиляц)\w*/iu,
@@ -87,6 +87,12 @@ export function cleanItemText(rawText: string): { cleanText: string; extractedId
     return '';
   });
 
+  // Strip parenthesized citations like (сообщение 1), (сообщения 1, 2), (источник: 1), (ID: 0d55...)
+  text = text.replace(/\((?:сообщен[ияе]+|источник[и]?|id)?\s*[:#№]?\s*[\d,\s#\-a-fA-F]+\)/gi, '');
+
+  // Clean empty parentheses or brackets left behind: e.g. () or []
+  text = text.replace(/\(\s*\)/g, '').replace(/\[\s*\]/g, '');
+
   // Clean up punctuation and whitespace artifacts
   text = text
     .replace(/\s*([,;:])\s*([,;.!?])/g, '$2')
@@ -106,20 +112,92 @@ export function cleanItemText(rawText: string): { cleanText: string; extractedId
   return { cleanText: text, extractedIds };
 }
 
-const housingKeywordsForRebalancing = /(?:водоснабжен|отоплен|канализац|сантехник|электрик|протеч|протек|аварийн|затоп|залив|капает|прорв|стояк|батаре|топ[яи])\w*/iu;
-const yardKeywordsForRebalancing = /(?:парковк|стоянк|автомоб|транспорт|шлагбаум|эвакуатор|перекрыл|заблокиров|тротуар|газон|госномер|камри|солярис|рио|веста|бмв|мерс|ауди|вольво|тиида|тигуан)\w*/iu;
+const housingKeywordsForRebalancing = /(?:водоснабжен|отоплен|канализац|сантехник|электрик|электричеств|свет\b|протеч|протек|аварийн|затоп|залив|капает|прорв|стояк|батаре|топ[яи]|лифт|котельн|подвал|кровл|крыш|мусоропровод|вентшахт|вентиляц|газ\b|жкх)\w*/iu;
+const yardKeywordsForRebalancing = /(?:парковк|стоянк|автомоб|транспорт|шлагбаум|эвакуатор|перекрыл|заблокиров|тротуар|газон|госномер|камри|солярис|рио|веста|бмв|мерс|ауди|вольво|тиида|тигуан|машин|тачка|сугроб|снегоубор|трактор|колес|колёс|каршеринг|сигнализац)\w*/iu;
+
+export function splitCompoundItem(item: SummaryItem): SummaryItem[] {
+  // 1. Check if joined by explicit sentence boundaries or newlines / semicolons
+  const sentenceParts = item.text.split(/(?:[;\n]+|(?<=[.!?])\s+)/).map((s) => s.trim()).filter(Boolean);
+  if (sentenceParts.length > 1) {
+    return sentenceParts
+      .map((part) => {
+        const { cleanText, extractedIds } = cleanItemText(part);
+        return {
+          text: cleanText,
+          sourceMessageIds: extractedIds.length > 0 ? extractedIds : (item.sourceMessageIds ?? ['1']),
+        };
+      })
+      .filter((i) => i.text.length > 0);
+  }
+
+  // 2. Check if joined by comma with contrasting categories (e.g. "Соседи жалуются на затопление, в подъезде найдены ключи")
+  const commaParts = item.text.split(/,\s+(?=[а-яa-z])/iu).map((s) => s.trim()).filter(Boolean);
+  if (commaParts.length === 2) {
+    const clean0 = cleanItemText(commaParts[0]!);
+    const clean1 = cleanItemText(commaParts[1]!);
+
+    const isFirstHousing = housingKeywordsForRebalancing.test(clean0.cleanText);
+    const isSecondHousing = housingKeywordsForRebalancing.test(clean1.cleanText);
+    const isFirstYard = yardKeywordsForRebalancing.test(clean0.cleanText);
+    const isSecondYard = yardKeywordsForRebalancing.test(clean1.cleanText);
+
+    if ((isFirstHousing && !isSecondHousing) || (!isFirstHousing && isSecondHousing) ||
+        (isFirstYard && !isSecondYard) || (!isFirstYard && isSecondYard)) {
+      const ids0 = clean0.extractedIds.length > 0
+        ? clean0.extractedIds
+        : item.sourceMessageIds && item.sourceMessageIds[0] ? [item.sourceMessageIds[0]] : ['1'];
+      const ids1 = clean1.extractedIds.length > 0
+        ? clean1.extractedIds
+        : item.sourceMessageIds && item.sourceMessageIds[1] ? [item.sourceMessageIds[1]] : ['2'];
+
+      return [
+        { text: clean0.cleanText, sourceMessageIds: ids0 },
+        { text: clean1.cleanText, sourceMessageIds: ids1 },
+      ].filter((i) => i.text.length > 0);
+    }
+  }
+
+  const { cleanText, extractedIds } = cleanItemText(item.text);
+  if (!cleanText) return [];
+  const allIds = [...new Set([...(item.sourceMessageIds ?? []), ...extractedIds])];
+  return [{ text: cleanText, sourceMessageIds: allIds.length > 0 ? allIds : ['1'] }];
+}
+
+function getSignificantWords(text: string): Set<string> {
+  const words = text
+    .toLowerCase()
+    .replace(/[^a-zа-я0-9\s]/gi, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length >= 3 && !/^(?:это|как|так|что|или|для|при|под|над|все|всё|уже|нет|без|дом|дома|своей|своем|своём|наш|наша|наше)$/i.test(w));
+  return new Set(words);
+}
+
+function wordSimilarity(wordsA: Set<string>, wordsB: Set<string>): number {
+  if (wordsA.size === 0 || wordsB.size === 0) return 0;
+  let intersection = 0;
+  for (const word of wordsA) {
+    if (wordsB.has(word)) intersection += 1;
+  }
+  const union = new Set([...wordsA, ...wordsB]).size;
+  return union === 0 ? 0 : intersection / union;
+}
 
 export function deduplicateAndCleanCategories(categories: SummaryCategories): SummaryCategories {
   const categoryOrder: Array<keyof SummaryCategories> = ['housing', 'yard', 'community'];
   const seenTexts = new Set<string>();
+  const seenWordSets: Set<string>[] = [];
   const seenSourceIds = new Set<string>();
   const result: SummaryCategories = { housing: [], yard: [], community: [] };
 
-  const rebalancedHousing = [...(categories.housing ?? [])];
+  const rawHousing = (categories.housing ?? []).flatMap(splitCompoundItem);
+  const rawYard = (categories.yard ?? []).flatMap(splitCompoundItem);
+  const rawCommunity = (categories.community ?? []).flatMap(splitCompoundItem);
+
+  const rebalancedHousing = [...rawHousing];
   const rebalancedYard: SummaryItem[] = [];
   const rebalancedCommunity: SummaryItem[] = [];
 
-  for (const item of categories.yard ?? []) {
+  for (const item of rawYard) {
     const { cleanText } = cleanItemText(item.text);
     if (!cleanText) continue;
     if (housingKeywordsForRebalancing.test(cleanText)) {
@@ -129,7 +207,7 @@ export function deduplicateAndCleanCategories(categories: SummaryCategories): Su
     }
   }
 
-  for (const item of categories.community ?? []) {
+  for (const item of rawCommunity) {
     const { cleanText } = cleanItemText(item.text);
     if (!cleanText) continue;
     if (housingKeywordsForRebalancing.test(cleanText)) {
@@ -158,14 +236,47 @@ export function deduplicateAndCleanCategories(categories: SummaryCategories): Su
         continue;
       }
 
+      // Check substring containment if long enough
+      let isSubstringDup = false;
+      if (norm.length >= 12) {
+        for (const seen of seenTexts) {
+          if (seen.length >= 12 && (norm.includes(seen) || seen.includes(norm))) {
+            isSubstringDup = true;
+            break;
+          }
+        }
+      }
+      if (isSubstringDup) continue;
+
+      // Check word-level similarity
+      const words = getSignificantWords(cleanText);
+      let isWordDup = false;
+      if (words.size >= 2) {
+        for (const seenWords of seenWordSets) {
+          if (wordSimilarity(words, seenWords) >= 0.65) {
+            isWordDup = true;
+            break;
+          }
+        }
+      }
+      if (isWordDup) continue;
+
       const allIds = [...new Set([...(item.sourceMessageIds ?? []), ...extractedIds])];
       if (allIds.length > 0 && allIds.every((id) => seenSourceIds.has(id))) {
         // All sources were already covered by a higher-priority category item
         continue;
       }
 
+      // If item has a single source ID that was already covered in a higher priority category, don't duplicate
+      if (allIds.length === 1 && seenSourceIds.has(allIds[0]!)) {
+        continue;
+      }
+
       if (norm.length > 0) {
         seenTexts.add(norm);
+      }
+      if (words.size > 0) {
+        seenWordSets.push(words);
       }
       for (const id of allIds) {
         seenSourceIds.add(id);

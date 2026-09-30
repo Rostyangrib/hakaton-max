@@ -339,4 +339,111 @@ describe('SummaryService', () => {
       expect.objectContaining({ id: 'm2' }),
     ]));
   });
+
+  it('performs incremental summarization for week period using lastMessageId tracking', async () => {
+    const existingSummary: SummaryResult = {
+      housing: [{ text: 'Протечка в трубе', sourceMessageIds: ['m1'] }],
+      yard: [],
+      community: [],
+      period: 'week',
+      periodFrom: new Date(now.getTime() - 7 * 24 * 3600 * 1000).toISOString(),
+      periodTo: now.toISOString(),
+      messageCount: 1,
+      filteredCount: 1,
+      savedMinutes: 1,
+      generatedAt: now.toISOString(),
+      mode: 'yandexgpt',
+      cached: false,
+      lastMessageId: 'm1',
+      lastMessageSentAt: now.toISOString(),
+    };
+
+    const latestJob = {
+      id: 'week-job-1',
+      mode: 'yandexgpt' as const,
+      status: 'done' as const,
+      result: existingSummary,
+      messageCount: 1,
+      periodFrom: new Date(now.getTime() - 7 * 24 * 3600 * 1000),
+      periodTo: now,
+      createdAt: now,
+      completedAt: now,
+    };
+
+    const allMessages = [
+      { id: 'm1', senderDisplayName: 'Иван', text: 'Протечка в трубе', sentAt: now },
+      { id: 'm2', senderDisplayName: 'Ольга', text: 'Красный вольво на тротуаре', sentAt: now },
+    ];
+
+    const repo = repository({
+      findCached: vi.fn(async () => null),
+      findLatestJob: vi.fn(async () => latestJob),
+      listMessages: vi.fn(async () => allMessages),
+    });
+
+    const model = {
+      summarize: vi.fn(async () => ({
+        housing: [],
+        yard: [{ text: 'Красный вольво стоит на тротуаре', sourceMessageIds: ['m2'] }],
+        community: [],
+      })),
+    };
+
+    const service = new SummaryService(repo, model, 777n, 600, () => now);
+    const result = await service.generate(42n, 'week');
+
+    expect(model.summarize).toHaveBeenCalledWith([expect.objectContaining({ id: 'm2' })]);
+    expect(result.housing).toHaveLength(1);
+    expect(result.yard).toHaveLength(1);
+    expect(result.messageCount).toBe(2);
+  });
+
+  it('returns existing summary refreshed without model call when no new messages arrived', async () => {
+    const existingSummary: SummaryResult = {
+      housing: [{ text: 'Лифт сломан', sourceMessageIds: ['m1'] }],
+      yard: [],
+      community: [],
+      period: 'today',
+      periodFrom: '2026-09-20T16:00:00.000Z',
+      periodTo: now.toISOString(),
+      messageCount: 1,
+      filteredCount: 1,
+      savedMinutes: 1,
+      generatedAt: '2026-09-20T18:00:00.000Z',
+      mode: 'yandexgpt',
+      cached: false,
+      lastMessageId: 'm1',
+      lastMessageSentAt: now.toISOString(),
+    };
+
+    const latestJob = {
+      id: 'job-1',
+      mode: 'yandexgpt' as const,
+      status: 'done' as const,
+      result: existingSummary,
+      messageCount: 1,
+      periodFrom: new Date('2026-09-20T16:00:00.000Z'),
+      periodTo: now,
+      createdAt: new Date('2026-09-20T18:00:00.000Z'),
+      completedAt: new Date('2026-09-20T18:00:01.000Z'),
+    };
+
+    const allMessages = [
+      { id: 'm1', senderDisplayName: 'Иван', text: 'Лифт сломан', sentAt: now },
+    ];
+
+    const repo = repository({
+      findCached: vi.fn(async () => null),
+      findLatestJob: vi.fn(async () => latestJob),
+      listMessages: vi.fn(async () => allMessages),
+    });
+
+    const model = { summarize: vi.fn(async () => ({ housing: [], yard: [], community: [] })) };
+    const service = new SummaryService(repo, model, 777n, 600, () => now);
+    const result = await service.generate(42n, 'today');
+
+    expect(model.summarize).not.toHaveBeenCalled();
+    expect(result.housing).toHaveLength(1);
+    expect(result.messageCount).toBe(1);
+  });
 });

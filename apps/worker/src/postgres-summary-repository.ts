@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, isNotNull, isNull, lte } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, isNotNull, isNull, lte, sql } from 'drizzle-orm';
 
 import type { createDatabase } from '@quiet-chat/database';
 import { homes, messages, residentProfiles, summaryJobs } from '@quiet-chat/database';
@@ -202,6 +202,21 @@ export class PostgresSummaryRepository implements SummaryRepository {
   }
 
   async findLatestJob(homeId: string, period: SummaryPeriod, from: Date): Promise<SummaryJobRecord | null> {
+    const conditions = [
+      eq(summaryJobs.homeId, homeId),
+      eq(summaryJobs.status, 'done'),
+      isNotNull(summaryJobs.result),
+      sql`${summaryJobs.result}->>'period' = ${period}`,
+    ];
+
+    if (period === 'today') {
+      conditions.push(eq(summaryJobs.periodFrom, from));
+    } else {
+      // For week/month, periodFrom moves continuously by milliseconds.
+      // Match a recent completed job for this period generated within the last 24h.
+      conditions.push(gte(summaryJobs.createdAt, new Date(Date.now() - 24 * 60 * 60 * 1_000)));
+    }
+
     const rows = await this.database.db
       .select({
         id: summaryJobs.id,
@@ -215,19 +230,14 @@ export class PostgresSummaryRepository implements SummaryRepository {
         completedAt: summaryJobs.completedAt,
       })
       .from(summaryJobs)
-      .where(and(
-        eq(summaryJobs.homeId, homeId),
-        eq(summaryJobs.status, 'done'),
-        eq(summaryJobs.periodFrom, from),
-        isNotNull(summaryJobs.result),
-      ))
+      .where(and(...conditions))
       .orderBy(desc(summaryJobs.createdAt))
       .limit(1);
 
     const row = rows[0];
     if (!row) return null;
     const parsed = summaryResultSchema.safeParse(row.result);
-    if (!parsed.success) return null;
+    if (!parsed.success || parsed.data.period !== period) return null;
 
     return {
       id: row.id,

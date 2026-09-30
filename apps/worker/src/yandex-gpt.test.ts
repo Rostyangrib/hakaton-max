@@ -65,6 +65,68 @@ describe('YandexGptClient', () => {
     expect(result.housing).toHaveLength(1);
     expect(result.housing[0]?.text).toBe('Лифт починен');
   });
+
+  it('retries on transient 503 error and succeeds on subsequent try', async () => {
+    let callCount = 0;
+    const fetchMock = vi.fn(async () => {
+      callCount += 1;
+      if (callCount === 1) {
+        return new Response('Service Unavailable', { status: 503 });
+      }
+      return response({
+        housing: [{ text: 'Лифт починен', sourceMessageIds: ['m1'] }],
+        yard: [],
+        community: [],
+      });
+    });
+
+    const client = new YandexGptClient({
+      apiKey: 'test-key', folderId: 'test-folder', apiUrl: 'https://example.test/completion', timeoutMs: 1_000,
+    }, fetchMock);
+
+    const result = await client.summarize([{ id: 'm1', senderDisplayName: 'Анна', text: 'Лифт сломан', sentAt: now() }]);
+    expect(callCount).toBe(2);
+    expect(result.housing).toHaveLength(1);
+    expect(result.housing[0]?.text).toBe('Лифт починен');
+  });
+
+  it('falls back to programmatic merge when reduce step encounters an error', async () => {
+    let callCount = 0;
+    const fetchMock = vi.fn(async () => {
+      callCount += 1;
+      // Chunks 1 and 2 succeed
+      if (callCount === 1) {
+        return response({
+          housing: [{ text: 'Протечка в подвале', sourceMessageIds: ['m0'] }],
+          yard: [],
+          community: [],
+        });
+      }
+      if (callCount === 2) {
+        return response({
+          housing: [],
+          yard: [{ text: 'Красный вольво на газоне', sourceMessageIds: ['m75'] }],
+          community: [],
+        });
+      }
+      // Reduce call fails with 400
+      return new Response('Bad Request', { status: 400 });
+    });
+
+    const client = new YandexGptClient({
+      apiKey: 'test-key', folderId: 'test-folder', apiUrl: 'https://example.test/completion', timeoutMs: 1_000,
+    }, fetchMock);
+
+    const messages = Array.from({ length: 76 }, (_, index) => ({
+      id: `m${index}`, senderDisplayName: 'Житель', text: `Сообщение ${index}`, sentAt: now(),
+    }));
+
+    const result = await client.summarize(messages);
+    expect(result.housing).toHaveLength(1);
+    expect(result.housing[0]?.text).toBe('Протечка в подвале');
+    expect(result.yard).toHaveLength(1);
+    expect(result.yard[0]?.text).toBe('Красный вольво на газоне');
+  });
 });
 
 function now() {
