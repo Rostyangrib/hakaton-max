@@ -26,7 +26,7 @@ trap 'on_error $LINENO' ERR
 report "QC_RELEASE_V1_BEGIN $(date -u +%FT%TZ)"
 cd /opt/quiet-chat
 
-target_branch="${QUIET_CHAT_BRANCH:-dev-chat-max}"
+target_branch="${QUIET_CHAT_BRANCH:-fix-summary}"
 git fetch origin "$target_branch"
 git checkout "$target_branch"
 git pull --ff-only origin "$target_branch"

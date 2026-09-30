@@ -1,0 +1,605 @@
+openapi: 3.1.0
+info:
+  title: QuietChat API
+  version: 0.1.0
+  description: >-
+    HTTP API проекта «Тихий Чат». Описаны собственные маршруты сервиса;
+    исходящие вызовы платформы MAX и YandexGPT в этот контракт не входят.
+servers:
+  - url: https://158-160-226-198.sslip.io
+    description: Развёрнутый экземпляр
+  - url: http://localhost:3000
+    description: Локальный API
+tags:
+  - name: Health
+  - name: MAX webhook
+  - name: Authorization
+  - name: Profile
+  - name: Vehicles
+paths:
+  /health/live:
+    get:
+      tags: [Health]
+      summary: Проверить, что процесс API работает
+      operationId: getLiveness
+      responses:
+        '200':
+          description: API работает
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /health/ready:
+    get:
+      tags: [Health]
+      summary: Проверить готовность API и базы данных
+      operationId: getReadiness
+      responses:
+        '200':
+          description: API и база данных готовы
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: База данных недоступна
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /webhooks/max:
+    post:
+      tags: [MAX webhook]
+      summary: Принять и поставить событие MAX в очередь
+      operationId: receiveMaxWebhook
+      security:
+        - MaxWebhookSecret: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MaxUpdate'
+      responses:
+        '202':
+          description: Событие принято; повторный вызов вернёт duplicate=true
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /api/auth/max:
+    post:
+      tags: [Authorization]
+      summary: Обменять подписанный initData MAX на сессию
+      operationId: authorizeWithMax
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [initData]
+              properties:
+                initData:
+                  type: string
+                  minLength: 1
+                  maxLength: 16384
+                  description: Подписанные данные Mini App от MAX Bridge
+      responses:
+        '200':
+          description: >-
+            Сессия создана. Помимо токена в теле устанавливается cookie
+            quietchat_session (HttpOnly; Secure и SameSite=None в production).
+          headers:
+            Set-Cookie:
+              description: Cookie quietchat_session
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /api/auth/token:
+    post:
+      tags: [Authorization]
+      summary: Восстановить cookie по ранее выданному токену сессии
+      operationId: authorizeWithToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+                  minLength: 1
+                  maxLength: 16384
+      responses:
+        '200':
+          description: Токен проверен, cookie обновлена
+          headers:
+            Set-Cookie:
+              description: Cookie quietchat_session
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /api/profile:
+    parameters:
+      - $ref: '#/components/parameters/ChatId'
+    get:
+      tags: [Profile]
+      summary: Получить профиль и доступные пользователю дома
+      operationId: getProfile
+      description: >-
+        При отсутствии chatId используется домашний чат по умолчанию;
+        если пользователь в нём не состоит, API может выбрать другой доступный дом.
+      security:
+        - SessionCookie: []
+        - SessionBearer: []
+      parameters:
+        - name: refresh
+          in: query
+          description: Значение 1 сбрасывает кеш проверки членства в MAX
+          schema:
+            type: string
+            enum: ['1']
+      responses:
+        '200':
+          description: Профиль (может быть null), членство и список домов
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfileResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+    put:
+      tags: [Profile]
+      summary: Создать или обновить профиль жильца
+      operationId: putProfile
+      description: Пользователь должен состоять в выбранном домовом чате MAX.
+      security:
+        - SessionCookie: []
+        - SessionBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProfileInput'
+      responses:
+        '200':
+          description: Сохранённый профиль
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedProfileResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+    delete:
+      tags: [Profile]
+      summary: Удалить профиль для выбранного дома
+      operationId: deleteProfile
+      security:
+        - SessionCookie: []
+        - SessionBearer: []
+      responses:
+        '200':
+          description: Флаг показывает, был ли профиль удалён
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteProfileResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /api/vehicles:
+    get:
+      tags: [Vehicles]
+      summary: Получить автомобили пользователя во всех его домах
+      operationId: getVehicles
+      security:
+        - SessionCookie: []
+        - SessionBearer: []
+      responses:
+        '200':
+          description: Список автомобилей
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VehiclesResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+    put:
+      tags: [Vehicles]
+      summary: Заменить список автомобилей пользователя
+      operationId: putVehicles
+      security:
+        - SessionCookie: []
+        - SessionBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [vehicles]
+              properties:
+                vehicles:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Vehicle'
+      responses:
+        '200':
+          description: Сохранённый список автомобилей
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VehiclesResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+components:
+  parameters:
+    ChatId:
+      name: chatId
+      in: query
+      description: Числовой ID домового чата; если не указан, используется чат по умолчанию
+      schema:
+        type: string
+        pattern: '^-?[0-9]+$'
+  securitySchemes:
+    MaxWebhookSecret:
+      type: apiKey
+      in: header
+      name: X-Max-Bot-Api-Secret
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: quietchat_session
+    SessionBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: Signed session token
+  responses:
+    BadRequest:
+      description: Неверный формат запроса или chatId
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResult'
+    Unauthorized:
+      description: Отсутствующий или недействительный секрет или токен
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResult'
+    Forbidden:
+      description: Пользователь не состоит в домовом чате
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResult'
+    Unavailable:
+      description: Нужный сервис или настройка недоступны
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResult'
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status, service, timestamp]
+      properties:
+        status:
+          type: string
+          enum: [ok, error]
+        service:
+          type: string
+          example: api
+        timestamp:
+          type: string
+          format: date-time
+    ErrorResult:
+      type: object
+      required: [data, error, requestId]
+      properties:
+        data:
+          type: 'null'
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+        requestId:
+          type: string
+    WebhookResult:
+      type: object
+      required: [data, error, requestId]
+      properties:
+        data:
+          type: object
+          required: [accepted, duplicate]
+          properties:
+            accepted:
+              type: boolean
+            duplicate:
+              type: boolean
+        error:
+          type: 'null'
+        requestId:
+          type: string
+    AuthResult:
+      type: object
+      required: [data, error, requestId]
+      properties:
+        data:
+          type: object
+          required: [displayName, sessionToken]
+          properties:
+            displayName:
+              type: string
+            sessionToken:
+              type: string
+              description: Подписанный токен сессии для заголовка Authorization Bearer
+        error:
+          type: 'null'
+        requestId:
+          type: string
+    MaxUpdate:
+      type: object
+      required: [update_type, timestamp]
+      description: >-
+        MAX update. После этих обязательных полей сервис принимает дополнительные
+        поля соответствующего типа события и сохраняет их для обработки воркером.
+      properties:
+        update_type:
+          type: string
+          minLength: 1
+        timestamp:
+          type: integer
+          minimum: 0
+      additionalProperties: true
+    Vehicle:
+      type: object
+      properties:
+        id:
+          type: string
+        plate:
+          type: [string, 'null']
+          maxLength: 32
+        plateNormalized:
+          type: [string, 'null']
+          maxLength: 16
+          readOnly: true
+        description:
+          type: [string, 'null']
+          maxLength: 100
+    Property:
+      type: object
+      required: [apartment, entrance]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+          maxLength: 100
+        chatId:
+          oneOf:
+            - type: integer
+            - type: string
+              pattern: '^-?[0-9]+$'
+        apartment:
+          $ref: '#/components/schemas/ApartmentNumber'
+        entrance:
+          $ref: '#/components/schemas/EntranceNumber'
+        floor:
+          $ref: '#/components/schemas/FloorNumber'
+    ApartmentNumber:
+      description: Zod также принимает числовую строку и преобразует её в число
+      oneOf:
+        - type: integer
+          minimum: 1
+          maximum: 9999
+        - type: string
+          pattern: '^[0-9]+$'
+    EntranceNumber:
+      description: Zod также принимает числовую строку и преобразует её в число
+      oneOf:
+        - type: integer
+          minimum: 1
+          maximum: 999
+        - type: string
+          pattern: '^[0-9]+$'
+    FloorNumber:
+      description: Zod также принимает числовую строку и преобразует её в число
+      oneOf:
+        - type: integer
+          minimum: -9
+          maximum: 999
+        - type: string
+          pattern: '^-?[0-9]+$'
+        - type: 'null'
+    ProfileInput:
+      type: object
+      required: [apartment, entrance]
+      properties:
+        chatId:
+          oneOf:
+            - type: integer
+            - type: string
+              pattern: '^-?[0-9]+$'
+        apartment:
+          $ref: '#/components/schemas/ApartmentNumber'
+        entrance:
+          $ref: '#/components/schemas/EntranceNumber'
+        floor:
+          $ref: '#/components/schemas/FloorNumber'
+        carPlate:
+          type: [string, 'null']
+          maxLength: 32
+        carDescription:
+          type: [string, 'null']
+          maxLength: 100
+        properties:
+          type: array
+          items:
+            $ref: '#/components/schemas/Property'
+        vehicles:
+          type: array
+          items:
+            $ref: '#/components/schemas/Vehicle'
+        alertsEnabled:
+          type: boolean
+          default: true
+    SavedProfile:
+      allOf:
+        - $ref: '#/components/schemas/ProfileInput'
+        - type: object
+          required: [properties, vehicles, updatedAt]
+          properties:
+            properties:
+              type: array
+              items:
+                $ref: '#/components/schemas/Property'
+            vehicles:
+              type: array
+              items:
+                $ref: '#/components/schemas/Vehicle'
+            membershipVerifiedAt:
+              type: [string, 'null']
+              format: date-time
+            updatedAt:
+              type: string
+              format: date-time
+    AvailableHome:
+      type: object
+      required: [chatId, title, isMember]
+      properties:
+        chatId:
+          type: string
+        title:
+          type: string
+        isMember:
+          type: boolean
+        chatUrl:
+          type: [string, 'null']
+    ProfileView:
+      type: object
+      required: [profile, isMember]
+      description: Поля сохранённого профиля при его наличии также дублируются на верхнем уровне
+      properties:
+        chatId:
+          type: string
+        profile:
+          oneOf:
+            - $ref: '#/components/schemas/SavedProfile'
+            - type: 'null'
+        isMember:
+          type: boolean
+        homeChatTitle:
+          type: [string, 'null']
+        homeChatUrl:
+          type: [string, 'null']
+        availableHomes:
+          type: array
+          items:
+            $ref: '#/components/schemas/AvailableHome'
+        vehicles:
+          type: array
+          items:
+            $ref: '#/components/schemas/Vehicle'
+      additionalProperties: true
+    ProfileResult:
+      type: object
+      required: [data, error, requestId]
+      properties:
+        data:
+          $ref: '#/components/schemas/ProfileView'
+        error:
+          type: 'null'
+        requestId:
+          type: string
+    SavedProfileResult:
+      type: object
+      required: [data, error, requestId]
+      properties:
+        data:
+          $ref: '#/components/schemas/SavedProfile'
+        error:
+          type: 'null'
+        requestId:
+          type: string
+    VehiclesResult:
+      type: object
+      required: [data, error, requestId]
+      properties:
+        data:
+          type: object
+          required: [vehicles]
+          properties:
+            vehicles:
+              type: array
+              items:
+                $ref: '#/components/schemas/Vehicle'
+        error:
+          type: 'null'
+        requestId:
+          type: string
+    DeleteProfileResult:
+      type: object
+      required: [data, error, requestId]
+      properties:
+        data:
+          type: object
+          required: [deleted]
+          properties:
+            deleted:
+              type: boolean
+        error:
+          type: 'null'
+        requestId:
+          type: string

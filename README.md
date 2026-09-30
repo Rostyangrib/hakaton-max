@@ -5,7 +5,8 @@
 
 - **Чат-бот в MAX**: [@t128_hakaton_max_bot](https://web.max.ru/397242154)
 - **Mini App в MAX**: [https://158-160-226-198.sslip.io](https://158-160-226-198.sslip.io) (Демо-режим: `https://158-160-226-198.sslip.io/?demo=1`)
-- **Git-репозиторий**: `https://github.com/Rostyangrib/hakaton-max.git` (ветка `dev-chat-max`)
+- **Git-репозиторий**: `https://github.com/Rostyangrib/hakaton-max.git` (ветка `fix-summary`)
+- **Описание собственного API**: [`openapi.yaml`](openapi.yaml) (OpenAPI 3.1; маршруты, схемы запросов и ответов, авторизация).
 
 ---
 
