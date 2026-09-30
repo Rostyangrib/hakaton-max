@@ -143,7 +143,7 @@ export class SummaryService {
       period,
       new Date(now.getTime() - this.cacheTtlSeconds * 1_000),
     );
-    if (cached && (period !== 'today' || cached.periodFrom === from.toISOString())) {
+    if (cached?.summaryVersion === 2 && cached.periodFrom === from.toISOString()) {
       return { ...cached, cached: true };
     }
 
@@ -162,139 +162,12 @@ export class SummaryService {
         generatedAt: now.toISOString(),
         mode: 'yandexgpt',
         cached: false,
+        summaryVersion: 2,
         homeTitle: home.title,
       };
     }
 
-    // Check if we can perform incremental summarization:
-    const latestJob = this.repository.findLatestJob
-      ? await this.repository.findLatestJob(home.id, period, from)
-      : null;
-
-    const canDoIncremental =
-      latestJob &&
-      latestJob.status === 'done' &&
-      latestJob.result &&
-      (latestJob.mode !== 'fallback' || !this.model);
-
-    if (canDoIncremental && latestJob.result) {
-      const prevResult = latestJob.result;
-
-      // Identify newly arrived messages using lastMessageId or lastMessageSentAt
-      let lastSeenIndex = -1;
-      if (prevResult.lastMessageId) {
-        lastSeenIndex = sourceMessages.findIndex((m) => m.id === prevResult.lastMessageId);
-      }
-      if (lastSeenIndex === -1 && prevResult.lastMessageSentAt) {
-        const lastSent = new Date(prevResult.lastMessageSentAt).getTime();
-        for (let i = sourceMessages.length - 1; i >= 0; i--) {
-          if (sourceMessages[i]!.sentAt.getTime() <= lastSent) {
-            lastSeenIndex = i;
-            break;
-          }
-        }
-      }
-
-      const newMessages =
-        lastSeenIndex !== -1
-          ? sourceMessages.slice(lastSeenIndex + 1)
-          : sourceMessages.length > latestJob.messageCount
-            ? sourceMessages.slice(latestJob.messageCount)
-            : [];
-
-      if (newMessages.length === 0) {
-        return {
-          ...prevResult,
-          messageCount: sourceMessages.length,
-          filteredCount: sourceMessages.length,
-          savedMinutes: estimateSavedMinutes(sourceMessages.length),
-          periodTo: to.toISOString(),
-          generatedAt: now.toISOString(),
-          cached: false,
-          homeTitle: home.title,
-        };
-      }
-
-      const preparedNew = prepareSummaryMessages(newMessages);
-
-      if (preparedNew.length === 0) {
-        const result: SummaryResult = {
-          ...prevResult,
-          messageCount: sourceMessages.length,
-          filteredCount: sourceMessages.length,
-          savedMinutes: estimateSavedMinutes(sourceMessages.length),
-          periodTo: to.toISOString(),
-          generatedAt: now.toISOString(),
-          cached: false,
-          homeTitle: home.title,
-          lastMessageId: sourceMessages.at(-1)?.id,
-          lastMessageSentAt: sourceMessages.at(-1)?.sentAt.toISOString(),
-        };
-
-        const jobId = await this.repository.createJob({
-          homeId: home.id,
-          requestedBy: maxUserId,
-          from,
-          to,
-          messageCount: sourceMessages.length,
-        });
-        await this.repository.completeJob(jobId, prevResult.mode, result, null);
-        return result;
-      }
-
-      let newCategories: SummaryCategories;
-      let mode: 'yandexgpt' | 'fallback' = prevResult.mode;
-      let error: string | null = null;
-      try {
-        if (!this.model) throw new Error('YandexGPT is not configured');
-        newCategories = await this.model.summarize(preparedNew);
-        mode = 'yandexgpt';
-      } catch (cause) {
-        console.warn(JSON.stringify({
-          level: 'warn',
-          service: 'worker',
-          message: 'YandexGPT failed on new messages, using fallback for incremental items',
-          error: cause instanceof Error ? cause.message : String(cause),
-        }));
-        mode = prevResult.mode;
-        error = (cause instanceof Error ? cause.message : 'Unknown YandexGPT error').slice(0, 2_000);
-        newCategories = createFallbackSummary(preparedNew);
-      }
-
-      const mergedCategories: SummaryCategories = {
-        housing: [...prevResult.housing, ...newCategories.housing],
-        yard: [...prevResult.yard, ...newCategories.yard],
-        community: [...prevResult.community, ...newCategories.community],
-      };
-      const cleaned = deduplicateAndCleanCategories(mergedCategories);
-
-      const result: SummaryResult = {
-        ...cleaned,
-        period,
-        periodFrom: from.toISOString(),
-        periodTo: to.toISOString(),
-        messageCount: sourceMessages.length,
-        filteredCount: sourceMessages.length,
-        savedMinutes: estimateSavedMinutes(sourceMessages.length),
-        generatedAt: now.toISOString(),
-        mode,
-        cached: false,
-        homeTitle: home.title,
-        lastMessageId: sourceMessages.at(-1)?.id,
-        lastMessageSentAt: sourceMessages.at(-1)?.sentAt.toISOString(),
-      };
-
-      const jobId = await this.repository.createJob({
-        homeId: home.id,
-        requestedBy: maxUserId,
-        from,
-        to,
-        messageCount: sourceMessages.length,
-      });
-      await this.repository.completeJob(jobId, mode, result, error);
-      return result;
-    }
-
+    // A cache miss can mean edits, deletions or late arrivals. Rebuild from current sources.
     const prepared = prepareSummaryMessages(sourceMessages);
     const jobId = await this.repository.createJob({
       homeId: home.id,
@@ -334,6 +207,7 @@ export class SummaryService {
       generatedAt: now.toISOString(),
       mode,
       cached: false,
+      summaryVersion: 2,
       homeTitle: home.title,
       lastMessageId: sourceMessages.at(-1)?.id,
       lastMessageSentAt: sourceMessages.at(-1)?.sentAt.toISOString(),

@@ -11,6 +11,26 @@ function response(categories: unknown, status = 'ALTERNATIVE_STATUS_FINAL') {
 const empty = { housing: [], yard: [], community: [] };
 
 describe('YandexGptClient', () => {
+  it('preserves a mapped event omitted by reduce even without fallback keywords', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(response({ ...empty,
+      community: [{ text: 'Завтра придёт председатель', sourceMessageIds: ['1'] }],
+    })).mockResolvedValueOnce(response(empty)).mockResolvedValueOnce(response(empty));
+    const client = new YandexGptClient({ apiKey: 'test', folderId: 'test', apiUrl: 'https://example.test', timeoutMs: 1000 }, fetchMock);
+    const result = await client.summarize(Array.from({ length: 76 }, (_, i) => ({ id: `event-${i}`, senderDisplayName: 'Житель',
+      text: i === 0 ? 'Завтра придёт председатель' : 'Привет', sentAt: now() })));
+    expect(result.community).toEqual([{ text: 'Завтра придёт председатель', sourceMessageIds: ['event-0'] }]);
+  });
+
+  it.each([2, 76, 151])('recovers omitted announcements from %i messages after map/reduce', async (count) => {
+    const fetchMock = vi.fn(async () => response(empty));
+    const client = new YandexGptClient({ apiKey: 'test', folderId: 'test', apiUrl: 'https://example.test', timeoutMs: 1000 }, fetchMock);
+    const messages = Array.from({ length: count }, (_, i) => ({ id: `event-${i}`, senderDisplayName: 'Житель',
+      text: i === count - 1 ? 'Сегодня травят тараканов' : `Необходимо сдать ${500 + i} рублей на ремонт`, sentAt: now() }));
+    const result = await client.summarize(messages);
+    expect(result.housing).toHaveLength(count);
+    expect(new Set(result.housing.flatMap((item) => item.sourceMessageIds))).toEqual(new Set(messages.map((item) => item.id)));
+  });
+
   it('uses map-reduce for more than one chunk and requests structured JSON', async () => {
     const fetchMock = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => response(empty));
     const client = new YandexGptClient({
@@ -45,7 +65,7 @@ describe('YandexGptClient', () => {
     const client = new YandexGptClient({
       apiKey: 'test-key', folderId: 'test-folder', apiUrl: 'https://example.test/completion', timeoutMs: 1_000,
     }, fetchMock);
-    await expect(client.summarize([{ id: 'm1', senderDisplayName: 'Анна', text: 'Лифт сломан', sentAt: now() }]))
+    await expect(client.summarize([{ id: 'm1', senderDisplayName: 'Анна', text: 'Привет', sentAt: now() }]))
       .resolves.toEqual(empty);
   });
 

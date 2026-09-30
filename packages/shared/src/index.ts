@@ -121,9 +121,9 @@ export const summaryItemSchema = z.object({
 });
 
 export const summaryCategoriesSchema = z.object({
-  housing: z.array(summaryItemSchema).max(10).default([]),
-  yard: z.array(summaryItemSchema).max(10).default([]),
-  community: z.array(summaryItemSchema).max(10).default([]),
+  housing: z.array(summaryItemSchema).default([]),
+  yard: z.array(summaryItemSchema).default([]),
+  community: z.array(summaryItemSchema).default([]),
 });
 
 export const summaryResultSchema = summaryCategoriesSchema.extend({
@@ -136,6 +136,7 @@ export const summaryResultSchema = summaryCategoriesSchema.extend({
   generatedAt: z.string().datetime(),
   mode: z.enum(['yandexgpt', 'fallback']),
   cached: z.boolean(),
+  summaryVersion: z.literal(2).optional(),
   homeTitle: z.string().optional(),
   apartmentFilter: z.number().int().positive().optional(),
   residentApartments: z.array(z.number().int().positive()).optional(),

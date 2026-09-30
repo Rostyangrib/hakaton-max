@@ -2,7 +2,7 @@ import { Keyboard } from '@maxhub/max-bot-api';
 import { summaryPeriodSchema, type SummaryPeriod, type SummaryResult } from '@quiet-chat/shared';
 
 import { createSummaryKeyboard } from './menu.js';
-import { renderSummary } from './summary.js';
+import { renderSummaryPages } from './summary.js';
 import { MultipleHomesChoiceError, SummaryAccessError, type SummaryHome } from './summary-service.js';
 
 export interface MaxUserPayload {
@@ -181,7 +181,8 @@ export class SummaryCallbackHandler {
         return true;
       }
 
-      const summaryText = renderSummary(summary);
+      const summaryPages = renderSummaryPages(summary);
+      const summaryText = summaryPages[0]!;
       const userHomes = this.options.summaryService.findHomesForResident
         ? await this.options.summaryService.findHomesForResident(BigInt(user.user_id)).catch(() => [])
         : [];
@@ -220,6 +221,15 @@ export class SummaryCallbackHandler {
         if (statusMid) {
           await this.options.botApi.deleteMessage(statusMid).catch(() => undefined);
         }
+      }
+
+      for (const page of summaryPages.slice(1)) {
+        // MAX permits at most two messages per second in one dialog.
+        await new Promise((resolve) => setTimeout(resolve, 550));
+        if (this.activeRequestSeq.get(user.user_id) !== requestId) break;
+        await this.options.botApi.sendMessageToUser(user.user_id, page, {
+          format: 'markdown', attachments: [summaryKeyboard],
+        });
       }
 
       if (statusMid && this.pendingStatusMids.get(user.user_id) === statusMid) {
@@ -276,7 +286,7 @@ export class SummaryCallbackHandler {
         if (error.code === 'LEFT_CHAT' && error.homeChatUrl) {
           const joinButton = [Keyboard.button.link('Вступить в домовой чат', error.homeChatUrl)];
           const existingRows = (keyboard as { payload?: { buttons?: unknown[][] } })?.payload?.buttons ?? [];
-          keyboard = Keyboard.inlineKeyboard([joinButton, ...(existingRows as any)]);
+          keyboard = Keyboard.inlineKeyboard([joinButton, ...(existingRows as Parameters<typeof Keyboard.inlineKeyboard>[0])]);
         }
 
         let edited = false;

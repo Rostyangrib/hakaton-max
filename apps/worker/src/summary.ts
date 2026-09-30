@@ -13,9 +13,9 @@ const greetingOnly = /^(?:всем\s+)?(?:привет|доброе\s+утро|�
 const spamTrollFilter = /(?:альтушк|одолжить\s+соли|спит\s+с\s+моей\s+девушк|закладк|мефедрон|гашиш)/iu;
 
 export const categoryKeywords: Record<keyof SummaryCategories, RegExp> = {
-  housing: /(?:вод[ауые]|свет|электр|отоплен|лифт|труб|протеч|протек|авари|ремонт|сантех|электрик|газ|служб|отключ|топ[яи]|затоп|залив|капает|прорв|стояк|батаре|давлен|котельн|подвал|кровл|крыш|канализац|мусоропровод|домофон|засор|вентшахт|вентиляц)\w*/iu,
+  housing: /(?:дезинсекц|дератизац|дезинфекц|таракан|клоп|грызун|санитарн[а-я]*\s+обработ|насеком|лестниц|санобработ|плесен|вод[ауые]|свет|электр|отоплен|лифт|труб|протеч|протек|авари|ремонт|сантех|электрик|газ|служб|отключ|топ[яи]|затоп|залив|капает|прорв|стояк|батаре|давлен|котельн|подвал|кровл|крыш|канализац|мусоропровод|домофон|засор|вентшахт|вентиляц)\w*/iu,
   yard: /(?:двор|парков|машин|автомоб|шлагбаум|снег|уборк|эвакуатор|проезд|дорог|мусор|выезд|перекрыл|тротуар|газон|колес|колёс|сигнализац|сугроб|трактор|тачка|госномер|номер[ае]?|камри|солярис|рио|грант|веста|лада|бмв|мерс|ауди|вольво|тиида|тигуан|ваз|шкода|киа|хенда|ниссан|мазда|форд|рено|лексус|рав4|крузак|газель)\w*/iu,
-  community: /(?:ключ|наш[её]л|потерял|помощ|опрос|собрани|решени|сосед|голосован|объявлен|шум|музык|детск|площадк|тамбур|подъезд|коляск|велосипед|документ|карт[аы]|найден)\w*/iu,
+  community: /(?:посидеть\s+с\s+реб[её]нком|помогите|сбор\s+средств|сдать\s+деньги|взнос|смет|ключ|наш[её]л|потерял|помощ|опрос|собрани|решени|сосед|голосован|объявлен|шум|музык|детск|площадк|тамбур|подъезд|коляск|велосипед|документ|карт[аы]|найден)\w*/iu,
 };
 
 interface ZonedParts {
@@ -78,7 +78,7 @@ export function cleanItemText(rawText: string): { cleanText: string; extractedId
         extractedIds.push(part);
       }
     }
-    return '';
+    return parts.length > 0 && parts.every((part) => extractedIds.includes(part)) ? '' : _match;
   });
 
   // Strip bare UUIDs that might not be in brackets
@@ -88,7 +88,7 @@ export function cleanItemText(rawText: string): { cleanText: string; extractedId
   });
 
   // Strip parenthesized citations like (сообщение 1), (сообщения 1, 2), (источник: 1), (ID: 0d55...)
-  text = text.replace(/\((?:сообщен[ияе]+|источник[и]?|id)?\s*[:#№]?\s*[\d,\s#\-a-fA-F]+\)/gi, '');
+  text = text.replace(/\((?:сообщен[ияе]+|источник[и]?|id)\s*[:#№]?\s*[\d,\s#\-a-fA-F]+\)/gi, '');
 
   // Clean empty parentheses or brackets left behind: e.g. () or []
   text = text.replace(/\(\s*\)/g, '').replace(/\[\s*\]/g, '');
@@ -112,7 +112,7 @@ export function cleanItemText(rawText: string): { cleanText: string; extractedId
   return { cleanText: text, extractedIds };
 }
 
-const housingKeywordsForRebalancing = /(?:водоснабжен|отоплен|канализац|сантехник|электрик|электричеств|свет\b|протеч|протек|аварийн|затоп|залив|капает|прорв|стояк|батаре|топ[яи]|лифт|котельн|подвал|кровл|крыш|мусоропровод|вентшахт|вентиляц|газ\b|жкх)\w*/iu;
+const housingKeywordsForRebalancing = /(?:дезинсекц|дератизац|дезинфекц|таракан|клоп|грызун|санитарн[а-я]*\s+обработ|насеком|лестниц|санобработ|ремонт|водоснабжен|отоплен|канализац|сантехник|электрик|электричеств|свет\b|протеч|протек|аварийн|затоп|залив|капает|прорв|стояк|батаре|топ[яи]|лифт|котельн|подвал|кровл|крыш|мусоропровод|вентшахт|вентиляц|газ\b|жкх)\w*/iu;
 const yardKeywordsForRebalancing = /(?:парковк|стоянк|автомоб|транспорт|шлагбаум|эвакуатор|перекрыл|заблокиров|тротуар|газон|госномер|камри|солярис|рио|веста|бмв|мерс|ауди|вольво|тиида|тигуан|машин|тачка|сугроб|снегоубор|трактор|колес|колёс|каршеринг|сигнализац)\w*/iu;
 
 export function splitCompoundItem(item: SummaryItem): SummaryItem[] {
@@ -141,14 +141,14 @@ export function splitCompoundItem(item: SummaryItem): SummaryItem[] {
     const isFirstYard = yardKeywordsForRebalancing.test(clean0.cleanText);
     const isSecondYard = yardKeywordsForRebalancing.test(clean1.cleanText);
 
-    if ((isFirstHousing && !isSecondHousing) || (!isFirstHousing && isSecondHousing) ||
-        (isFirstYard && !isSecondYard) || (!isFirstYard && isSecondYard)) {
+    if (clean0.extractedIds.length > 0 && clean1.extractedIds.length > 0 && ((isFirstHousing && !isSecondHousing) || (!isFirstHousing && isSecondHousing) ||
+        (isFirstYard && !isSecondYard) || (!isFirstYard && isSecondYard))) {
       const ids0 = clean0.extractedIds.length > 0
         ? clean0.extractedIds
         : item.sourceMessageIds && item.sourceMessageIds[0] ? [item.sourceMessageIds[0]] : ['1'];
       const ids1 = clean1.extractedIds.length > 0
         ? clean1.extractedIds
-        : item.sourceMessageIds && item.sourceMessageIds[1] ? [item.sourceMessageIds[1]] : ['2'];
+        : item.sourceMessageIds && item.sourceMessageIds[1] ? [item.sourceMessageIds[1]] : (item.sourceMessageIds ?? []);
 
       return [
         { text: clean0.cleanText, sourceMessageIds: ids0 },
@@ -163,30 +163,9 @@ export function splitCompoundItem(item: SummaryItem): SummaryItem[] {
   return [{ text: cleanText, sourceMessageIds: allIds.length > 0 ? allIds : ['1'] }];
 }
 
-function getSignificantWords(text: string): Set<string> {
-  const words = text
-    .toLowerCase()
-    .replace(/[^a-zа-я0-9\s]/gi, ' ')
-    .split(/\s+/)
-    .filter((w) => w.length >= 3 && !/^(?:это|как|так|что|или|для|при|под|над|все|всё|уже|нет|без|дом|дома|своей|своем|своём|наш|наша|наше)$/i.test(w));
-  return new Set(words);
-}
-
-function wordSimilarity(wordsA: Set<string>, wordsB: Set<string>): number {
-  if (wordsA.size === 0 || wordsB.size === 0) return 0;
-  let intersection = 0;
-  for (const word of wordsA) {
-    if (wordsB.has(word)) intersection += 1;
-  }
-  const union = new Set([...wordsA, ...wordsB]).size;
-  return union === 0 ? 0 : intersection / union;
-}
-
 export function deduplicateAndCleanCategories(categories: SummaryCategories): SummaryCategories {
   const categoryOrder: Array<keyof SummaryCategories> = ['housing', 'yard', 'community'];
   const seenTexts = new Set<string>();
-  const seenWordSets: Set<string>[] = [];
-  const seenSourceIds = new Set<string>();
   const result: SummaryCategories = { housing: [], yard: [], community: [] };
 
   const rawHousing = (categories.housing ?? []).flatMap(splitCompoundItem);
@@ -231,63 +210,20 @@ export function deduplicateAndCleanCategories(categories: SummaryCategories): Su
       const { cleanText, extractedIds } = cleanItemText(item.text);
       if (!cleanText) continue;
 
-      const norm = cleanText.toLowerCase().replace(/[^a-zа-я0-9]/g, '');
+      const norm = cleanText.toLowerCase().replace(/\s+/gu, ' ').replace(/[.!?]+$/u, '').trim();
       if (norm.length > 0 && seenTexts.has(norm)) {
         continue;
       }
 
-      // Check substring containment if long enough
-      let isSubstringDup = false;
-      if (norm.length >= 12) {
-        for (const seen of seenTexts) {
-          if (seen.length >= 12 && (norm.includes(seen) || seen.includes(norm))) {
-            isSubstringDup = true;
-            break;
-          }
-        }
-      }
-      if (isSubstringDup) continue;
-
-      // Check word-level similarity
-      const words = getSignificantWords(cleanText);
-      let isWordDup = false;
-      if (words.size >= 2) {
-        for (const seenWords of seenWordSets) {
-          if (wordSimilarity(words, seenWords) >= 0.65) {
-            isWordDup = true;
-            break;
-          }
-        }
-      }
-      if (isWordDup) continue;
-
       const allIds = [...new Set([...(item.sourceMessageIds ?? []), ...extractedIds])];
-      if (allIds.length > 0 && allIds.every((id) => seenSourceIds.has(id))) {
-        // All sources were already covered by a higher-priority category item
-        continue;
-      }
-
-      // If item has a single source ID that was already covered in a higher priority category, don't duplicate
-      if (allIds.length === 1 && seenSourceIds.has(allIds[0]!)) {
-        continue;
-      }
-
       if (norm.length > 0) {
         seenTexts.add(norm);
       }
-      if (words.size > 0) {
-        seenWordSets.push(words);
-      }
-      for (const id of allIds) {
-        seenSourceIds.add(id);
-      }
-
       result[category].push({
         text: cleanText.slice(0, 500),
         sourceMessageIds: allIds.length > 0 ? allIds.slice(0, 20) : ['1'],
       });
     }
-    result[category] = result[category].slice(0, 10);
   }
 
   return result;
@@ -297,22 +233,10 @@ export function prepareSummaryMessages(messages: SummarySourceMessage[]): Summar
   const cleaned = messages.filter((message) => {
     const trimmed = message.text.trim();
     if (greetingOnly.test(trimmed)) return false;
-    if (spamTrollFilter.test(trimmed)) return false;
+    if (spamTrollFilter.test(trimmed) && !Object.values(categoryKeywords).some((pattern) => pattern.test(trimmed))) return false;
     return true;
   });
-  if (messages.length <= 150) return cleaned;
-
-  const grouped: SummarySourceMessage[] = [];
-  for (const message of cleaned) {
-    const previous = grouped.at(-1);
-    if (previous && previous.senderDisplayName === message.senderDisplayName && previous.text.length < 220 && message.text.length < 220 && previous.text.length + message.text.length <= 500) {
-      previous.text = `${previous.text} / ${message.text}`;
-      previous.sourceMessageIds = [...(previous.sourceMessageIds ?? [previous.id]), message.id];
-    } else {
-      grouped.push({ ...message });
-    }
-  }
-  return grouped;
+  return cleaned.map((message) => ({ ...message }));
 }
 
 export function chunkSummaryMessages(messages: SummarySourceMessage[], size = 75): SummarySourceMessage[][] {
@@ -325,22 +249,20 @@ export function createFallbackSummary(messages: SummarySourceMessage[]): Summary
   const result: SummaryCategories = { housing: [], yard: [], community: [] };
   const categories: (keyof SummaryCategories)[] = ['housing', 'yard', 'community'];
 
-  for (const message of messages) {
-    for (const category of categories) {
-      if (result[category].length >= 5 || !categoryKeywords[category].test(message.text)) continue;
-      const { cleanText } = cleanItemText(message.text);
-      result[category].push({
-        text: cleanText.slice(0, 500),
-        sourceMessageIds: message.sourceMessageIds ?? [message.id],
-      });
-      break;
+  for (const message of prepareSummaryMessages(messages)) {
+    const parts = splitCompoundItem({ text: message.text, sourceMessageIds: message.sourceMessageIds ?? [message.id] });
+    for (const part of parts) {
+      for (const category of categories) {
+        if (!categoryKeywords[category].test(part.text)) continue;
+        result[category].push(part);
+        break;
+      }
     }
   }
   return deduplicateAndCleanCategories(result);
 }
 
 export function assertValidSources(categories: SummaryCategories, allowedIds: Set<string>): SummaryCategories {
-  const allowedList = [...allowedIds];
   const validate = (items: SummaryItem[]) => items.map((item) => {
     const { cleanText, extractedIds } = cleanItemText(item.text);
     const combined = [...(item.sourceMessageIds ?? []), ...extractedIds];
@@ -348,18 +270,11 @@ export function assertValidSources(categories: SummaryCategories, allowedIds: Se
       const id = String(rawId).replace(/^[[#\s]+|[\]\s]+$/g, '').trim();
       if (!id) return null;
       if (allowedIds.has(id)) return id;
-      const prefix = allowedList.find((allowed) => allowed.startsWith(id) || id.startsWith(allowed));
-      if (prefix) return prefix;
-      const match = id.match(/^(?:m|#)?(\d+)$/i);
-      if (match) {
-        const index = parseInt(match[1]!, 10) - 1;
-        if (index >= 0 && index < allowedList.length) return allowedList[index]!;
-      }
       return null;
     }).filter((id): id is string => id !== null);
 
     const sourceMessageIds = [...new Set(resolved)];
-    if (sourceMessageIds.length === 0) {
+    if (sourceMessageIds.length === 0 || resolved.length !== combined.length) {
       throw new Error('YandexGPT returned an unknown source message id');
     }
     return { text: cleanText, sourceMessageIds };
@@ -377,17 +292,17 @@ function renderCategory(title: string, items: SummaryItem[]): string[] {
   return [
     title,
     ...(items.length
-      ? items.slice(0, 5).map((item) => {
+      ? items.map((item) => {
           const { cleanText } = cleanItemText(item.text);
-          return `• ${cleanText.slice(0, 200)}`;
+          return `• ${cleanText}`;
         })
       : ['Без происшествий']),
   ];
 }
 
-export function renderSummary(result: SummaryResult, homeTitle?: string): string {
+function renderFullSummary(result: SummaryResult, homeTitle?: string): string {
   const periodLabels: Record<SummaryPeriod, string> = { today: 'сегодня', week: 'последние 7 дней', month: 'последние 30 дней' };
-  const title = homeTitle || result.homeTitle;
+  const title = (homeTitle || result.homeTitle)?.slice(0, 200);
   const header = title
     ? `**Сводка по дому «${title}» за ${periodLabels[result.period]}**`
     : `**Сводка за ${periodLabels[result.period]}**`;
@@ -404,4 +319,23 @@ export function renderSummary(result: SummaryResult, homeTitle?: string): string
 
 export function estimateSavedMinutes(messageCount: number): number {
   return messageCount === 0 ? 0 : Math.max(1, Math.round(messageCount * 8 / 60));
+}
+
+// Split only between lines so every fact reaches the private dialog intact.
+export function renderSummaryPages(result: SummaryResult, homeTitle?: string): string[] {
+  const pages: string[] = [];
+  let page = '';
+  for (const line of renderFullSummary(result, homeTitle).split('\n')) {
+    if (page.length + line.length + 1 > 3900) {
+      pages.push(page);
+      page = '**Продолжение сводки**';
+    }
+    page += `${page ? '\n' : ''}${line}`;
+  }
+  if (page) pages.push(page);
+  return pages;
+}
+
+export function renderSummary(result: SummaryResult, homeTitle?: string): string {
+  return renderSummaryPages(result, homeTitle)[0]!;
 }

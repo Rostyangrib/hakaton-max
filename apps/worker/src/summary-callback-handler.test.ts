@@ -48,6 +48,23 @@ const dummySummary: SummaryResult = {
 };
 
 describe('SummaryCallbackHandler', () => {
+  it('delivers every page of a long summary to the requesting user', async () => {
+    const summary = { ...dummySummary, housing: Array.from({ length: 30 }, (_, i) => ({
+      text: `Ремонт ${i}: ${'подробности '.repeat(35)}`, sourceMessageIds: [`event-${i}`],
+    })) };
+    const botApi = { answerOnCallback: vi.fn(async () => undefined), sendMessageToUser: vi.fn(async () => ({ body: { mid: 'status' } })),
+      editMessage: vi.fn(), deleteMessage: vi.fn() };
+    const handler = new SummaryCallbackHandler({ botApi, summaryService: { generate: vi.fn(async () => summary) } });
+    await handler.handle(createMockUpdate());
+    const sent = botApi.sendMessageToUser.mock.calls as unknown as Array<[number, string]>;
+    const edited = botApi.editMessage.mock.calls as unknown as Array<[string, { text: string }]>;
+    const texts = [...edited.map((call) => call[1].text), ...sent.slice(1).map((call) => call[1])];
+    expect(texts.length).toBeGreaterThan(1);
+    expect(texts.every((text) => text.length <= 4000)).toBe(true);
+    for (const item of summary.housing) expect(texts.join('\n')).toContain(item.text.trim());
+    expect(sent.every((call) => call[0] === 215608884)).toBe(true);
+  });
+
   it('ignores updates that are not dialog callbacks with summary payload', async () => {
     const botApi: SummaryBotApi = {
       answerOnCallback: vi.fn(),

@@ -8,6 +8,7 @@ import {
   getSummaryPeriodRange,
   prepareSummaryMessages,
   renderSummary,
+  renderSummaryPages,
   type SummarySourceMessage,
 } from './summary.js';
 
@@ -17,6 +18,68 @@ function message(id: string, text: string, senderDisplayName = 'Житель'): 
   return { id, text, senderDisplayName, sentAt: at };
 }
 
+describe('summary coverage regressions', () => {
+  it.each([
+    ['Сегодня травят тараканов', 'housing'],
+    ['Внимание: сегодня будет проведена санитарная обработка от насекомых', 'housing'],
+    ['Сегодня перекрывают лестницы', 'housing'],
+    ['Необходимо сдать 2500 на благоустройство двора', 'yard'],
+    ['Кто из жильцов может посидеть с ребенком', 'community'],
+    ['Необходимо сдать деньги на ремонт', 'housing'],
+    ['В пятницу дезинсекция с 10:00 до 12:00', 'housing'],
+    ['Дератизация подвала перенесена на завтра', 'housing'],
+    ['Обработка от клопов отменена', 'housing'],
+    ['Сдать 1500 рублей на ремонт до 5 октября', 'housing'],
+    ['Сбор средств на праздник до пятницы', 'community'],
+    ['Взносы на охрану — 500 рублей', 'community'],
+    ['Собрание собственников завтра в 19:00', 'community'],
+    ['Найдены документы в подъезде', 'community'],
+    ['Просьба убрать машины, завтра уборка снега', 'yard'],
+    ['В подвале обнаружена плесень', 'housing'],
+  ] as const)('retains announcement: %s', (text, category) => {
+    const result = createFallbackSummary([message('event', text)]);
+    expect(result[category]).toEqual([{ text, sourceMessageIds: ['event'] }]);
+  });
+
+  it('keeps distinct facts from the same source and facts differing by amount, apartment or negation', () => {
+    const texts = ['Сдать 500 рублей на ремонт', 'Сдать 1500 рублей на ремонт',
+      'В квартире 54 капает труба', 'В квартире 93 капает труба',
+      'Сегодня травят тараканов', 'Сегодня не травят тараканов'];
+    const result = deduplicateAndCleanCategories({
+      housing: texts.map((text) => ({ text, sourceMessageIds: ['one'] })), yard: [], community: [],
+    });
+    expect(result.housing.map((item) => item.text)).toEqual(texts);
+  });
+
+  it('keeps multiple categories from a single source without inventing ids', () => {
+    const result = createFallbackSummary([message('only-id', 'Сегодня травят тараканов; Необходимо сдать деньги на ремонт; Найдены ключи')]);
+    expect(result.housing).toHaveLength(2);
+    expect(result.community).toHaveLength(1);
+    expect(Object.values(result).flat().every((item) => item.sourceMessageIds.join() === 'only-id')).toBe(true);
+  });
+
+  it('preserves factual messages containing a noise keyword and strips pure noise', () => {
+    const result = createFallbackSummary([message('noise', 'Спасибо!'), message('fact', 'В подвале ремонт, найдены закладки')]);
+    expect(result.housing).toHaveLength(1);
+    expect(result.housing[0]?.sourceMessageIds).toEqual(['fact']);
+  });
+
+  it('preserves all 160 distinct events through preparation, fallback and paginated rendering', () => {
+    const input = Array.from({ length: 160 }, (_, i) => message(`event-${i}`, `Ремонт в квартире ${i + 1}, взнос ${i + 500} рублей до 5 октября`));
+    const categories = createFallbackSummary(prepareSummaryMessages(input));
+    expect(categories.housing).toHaveLength(160);
+    const pages = renderSummaryPages({ ...categories, period: 'month', periodFrom: at.toISOString(), periodTo: at.toISOString(),
+      generatedAt: at.toISOString(), messageCount: 160, filteredCount: 0, savedMinutes: 1, mode: 'fallback', cached: false });
+    expect(pages.length).toBeGreaterThan(1);
+    expect(pages.every((page) => page.length <= 4000)).toBe(true);
+    for (const item of input) expect(pages.join('\n')).toContain(item.text);
+  });
+
+  it('preserves non-citation brackets and parenthesized amounts', () => {
+    expect(cleanItemText('Ремонт [перенесён] — взнос (500 рублей)').cleanText).toBe('Ремонт [перенесён] — взнос (500 рублей)');
+  });
+});
+
 describe('summary preparation', () => {
   it('starts today at local midnight and uses rolling 7/30 day ranges', () => {
     expect(getSummaryPeriodRange('today', at, 'Asia/Irkutsk').from.toISOString()).toBe('2026-09-20T16:00:00.000Z');
@@ -24,12 +87,12 @@ describe('summary preparation', () => {
     expect(getSummaryPeriodRange('month', at, 'Asia/Irkutsk').from.toISOString()).toBe('2026-08-22T04:00:00.000Z');
   });
 
-  it('removes greeting-only messages and groups short adjacent messages only above 150 inputs', () => {
+  it('removes greetings without merging unrelated facts or authors with identical display names', () => {
     const input = Array.from({ length: 151 }, (_, index) => message(String(index), index === 0 ? 'Всем привет!' : `Сообщение ${index}`, 'Анна'));
     const prepared = prepareSummaryMessages(input);
-    expect(prepared.length).toBeLessThan(150);
+    expect(prepared).toHaveLength(150);
     expect(prepared.some((item) => item.text.includes('Всем привет'))).toBe(false);
-    expect(prepared[0]?.sourceMessageIds?.length).toBeGreaterThan(1);
+    expect(prepared.map((item) => item.id)).toEqual(input.slice(1).map((item) => item.id));
   });
 
   it('filters out spam and provocative trolling messages that trigger AI content filters', () => {
@@ -127,7 +190,7 @@ describe('deduplicateAndCleanCategories and cross-category exclusivity', () => {
         { text: 'Бежевая тиида стоит на тротуаре', sourceMessageIds: ['m3'] },
       ],
       community: [
-        { text: '67 квартира вы топите соседей снизу быстро сюда', sourceMessageIds: ['m1'] },
+        { text: '67 квартира вы топите соседей снизу', sourceMessageIds: ['m1'] },
         { text: 'чёрный карандаш мешает моей жене выехать', sourceMessageIds: ['m4'] },
         { text: 'Красный вольво стоит в неположенном месте', sourceMessageIds: ['m2'] },
         { text: 'Бежевая тиида стоит на тротуаре', sourceMessageIds: ['m3'] },
@@ -158,7 +221,7 @@ describe('deduplicateAndCleanCategories and cross-category exclusivity', () => {
 
   it('fallback accurately categorizes leaks into housing and car brands into yard without duplication', () => {
     const rawMessages: SummarySourceMessage[] = [
-      message('1', '67 квартира вы топите соседей снизу быстро сюда'),
+      message('1', '67 квартира вы топите соседей снизу'),
       message('2', 'Соседская камри уже меня достала'),
       message('3', 'Красный вольво стоит в неположенном месте'),
       message('4', 'Бежевая тиида стоит на тротуаре'),
@@ -239,14 +302,14 @@ describe('deduplicateAndCleanCategories and cross-category exclusivity', () => {
     expect(cleaned.community[0]?.text).toContain('В подъезде найдены ключи');
   });
 
-  it('eliminates semantic near-duplicates with minor phrasing differences', () => {
+  it('eliminates exact repeated facts across categories', () => {
     const rawCategories = {
       housing: [
         { text: '67 квартира вы топите соседей снизу', sourceMessageIds: ['m1'] },
       ],
       yard: [],
       community: [
-        { text: '67 квартира вы топите соседей снизу быстро сюда', sourceMessageIds: ['m1'] },
+        { text: '67 квартира вы топите соседей снизу', sourceMessageIds: ['m1'] },
       ],
     };
 
