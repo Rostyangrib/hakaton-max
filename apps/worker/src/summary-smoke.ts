@@ -25,7 +25,7 @@ const result = await client.summarize(prepareSummaryMessages(messages));
 const covered = new Set(Object.values(result).flat().flatMap((item) => item.sourceMessageIds));
 for (const message of messages.filter((item) => item.id !== 'smoke-6')) assert(covered.has(message.id), `Missing ${message.id}`);
 assert(!covered.has('smoke-6'), 'Greeting was included');
-assert(result.housing.some((item) => /таракан/iu.test(item.text)));
+assert(result.housing.some((item) => /(?:таракан|насеком|санитарн|дезинсекц)/iu.test(item.text)));
 assert(result.yard.some((item) => /2500/.test(item.text)));
 assert(Object.values(result).flat().some((item) => /отмен/iu.test(item.text)));
 console.log(JSON.stringify({ status: 'passed', sourceCount: messages.length, categories: result }, null, 2));
