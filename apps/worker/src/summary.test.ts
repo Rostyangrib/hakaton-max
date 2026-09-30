@@ -178,4 +178,26 @@ describe('deduplicateAndCleanCategories and cross-category exclusivity', () => {
     expect(fallback.community).toHaveLength(1);
     expect(fallback.community[0]?.text).toContain('ключи');
   });
+
+  it('rebalances items placed in community to housing or yard when text clearly indicates utilities or parking', () => {
+    const rawCategories = {
+      housing: [],
+      yard: [],
+      community: [
+        { text: '67 квартира топит соседей снизу', sourceMessageIds: ['m1'] },
+        { text: 'Бежевая тиида стоит на тротуаре', sourceMessageIds: ['m2'] },
+        { text: 'В подъезде найдены ключи от домофона', sourceMessageIds: ['m3'] },
+      ],
+    };
+
+    const cleaned = deduplicateAndCleanCategories(rawCategories);
+
+    expect(cleaned.housing).toHaveLength(1);
+    expect(cleaned.housing[0]?.text).toBe('67 квартира топит соседей снизу');
+    expect(cleaned.yard).toHaveLength(1);
+    expect(cleaned.yard[0]?.text).toBe('Бежевая тиида стоит на тротуаре');
+    expect(cleaned.community).toHaveLength(1);
+    expect(cleaned.community[0]?.text).toBe('В подъезде найдены ключи от домофона');
+  });
 });
+

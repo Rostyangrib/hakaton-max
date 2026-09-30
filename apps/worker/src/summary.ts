@@ -106,14 +106,49 @@ export function cleanItemText(rawText: string): { cleanText: string; extractedId
   return { cleanText: text, extractedIds };
 }
 
+const housingKeywordsForRebalancing = /(?:водоснабжен|отоплен|канализац|сантехник|электрик|протеч|протек|аварийн|затоп|залив|капает|прорв|стояк|батаре|топ[яи])\w*/iu;
+const yardKeywordsForRebalancing = /(?:парковк|стоянк|автомоб|шлагбаум|эвакуатор|перекрыл|заблокиров|тротуар|газон|госномер|камри|солярис|рио|веста|бмв|мерс|ауди|вольво|тиида|тигуан)\w*/iu;
+
 export function deduplicateAndCleanCategories(categories: SummaryCategories): SummaryCategories {
   const categoryOrder: Array<keyof SummaryCategories> = ['housing', 'yard', 'community'];
   const seenTexts = new Set<string>();
   const seenSourceIds = new Set<string>();
   const result: SummaryCategories = { housing: [], yard: [], community: [] };
 
+  const rebalancedHousing = [...(categories.housing ?? [])];
+  const rebalancedYard: SummaryItem[] = [];
+  const rebalancedCommunity: SummaryItem[] = [];
+
+  for (const item of categories.yard ?? []) {
+    const { cleanText } = cleanItemText(item.text);
+    if (!cleanText) continue;
+    if (housingKeywordsForRebalancing.test(cleanText)) {
+      rebalancedHousing.push(item);
+    } else {
+      rebalancedYard.push(item);
+    }
+  }
+
+  for (const item of categories.community ?? []) {
+    const { cleanText } = cleanItemText(item.text);
+    if (!cleanText) continue;
+    if (housingKeywordsForRebalancing.test(cleanText)) {
+      rebalancedHousing.push(item);
+    } else if (yardKeywordsForRebalancing.test(cleanText)) {
+      rebalancedYard.push(item);
+    } else {
+      rebalancedCommunity.push(item);
+    }
+  }
+
+  const pool: SummaryCategories = {
+    housing: rebalancedHousing,
+    yard: rebalancedYard,
+    community: rebalancedCommunity,
+  };
+
   for (const category of categoryOrder) {
-    const items = categories[category] ?? [];
+    const items = pool[category] ?? [];
     for (const item of items) {
       const { cleanText, extractedIds } = cleanItemText(item.text);
       if (!cleanText) continue;
