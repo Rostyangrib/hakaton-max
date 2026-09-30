@@ -139,6 +139,8 @@ export const summaryResultSchema = summaryCategoriesSchema.extend({
   homeTitle: z.string().optional(),
   apartmentFilter: z.number().int().positive().optional(),
   residentApartments: z.array(z.number().int().positive()).optional(),
+  lastMessageId: z.string().optional(),
+  lastMessageSentAt: z.string().datetime().optional(),
 }).strict();
 
 export type SummaryPeriod = z.infer<typeof summaryPeriodSchema>;

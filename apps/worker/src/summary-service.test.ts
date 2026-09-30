@@ -169,4 +169,174 @@ describe('SummaryService', () => {
       expect(accessErr.homeChatUrl).toBe('https://max.ru/chat-uyut');
     }
   });
+
+  it('performs incremental summarization when new messages arrive, preserving existing items and summarizing only new messages', async () => {
+    const existingSummary: SummaryResult = {
+      housing: [{ text: 'Протечка в 67 квартире', sourceMessageIds: ['m1'] }],
+      yard: [{ text: 'Красный вольво стоит на газоне', sourceMessageIds: ['m2'] }],
+      community: [],
+      period: 'today',
+      periodFrom: '2026-09-20T16:00:00.000Z',
+      periodTo: now.toISOString(),
+      messageCount: 2,
+      filteredCount: 2,
+      savedMinutes: 1,
+      generatedAt: '2026-09-20T18:00:00.000Z',
+      mode: 'yandexgpt',
+      cached: false,
+    };
+
+    const latestJob = {
+      id: 'prev-job-1',
+      mode: 'yandexgpt' as const,
+      status: 'done' as const,
+      result: existingSummary,
+      messageCount: 2,
+      periodFrom: new Date('2026-09-20T16:00:00.000Z'),
+      periodTo: now,
+      createdAt: new Date('2026-09-20T18:00:00.000Z'),
+      completedAt: new Date('2026-09-20T18:00:01.000Z'),
+    };
+
+    const allMessages = [
+      { id: 'm1', senderDisplayName: 'Иван', text: 'У нас протечка', sentAt: now },
+      { id: 'm2', senderDisplayName: 'Ольга', text: 'Красный вольво на газоне', sentAt: now },
+      { id: 'm3', senderDisplayName: 'Сергей', text: 'В подъезде найдены ключи от домофона', sentAt: now },
+    ];
+
+    const repo = repository({
+      findCached: vi.fn(async () => null),
+      findLatestJob: vi.fn(async () => latestJob),
+      listMessages: vi.fn(async () => allMessages),
+    });
+
+    const model = {
+      summarize: vi.fn(async () => ({
+        housing: [],
+        yard: [],
+        community: [{ text: 'В подъезде найдены ключи от домофона', sourceMessageIds: ['m3'] }],
+      })),
+    };
+
+    const service = new SummaryService(repo, model, 777n, 600, () => now);
+    const result = await service.generate(42n, 'today');
+
+    // Only new message m3 was passed to the model!
+    expect(model.summarize).toHaveBeenCalledWith([expect.objectContaining({ id: 'm3' })]);
+    // The previous items are preserved!
+    expect(result.housing).toHaveLength(1);
+    expect(result.housing[0]?.text).toBe('Протечка в 67 квартире');
+    expect(result.yard).toHaveLength(1);
+    expect(result.yard[0]?.text).toBe('Красный вольво стоит на газоне');
+    // The new item is added!
+    expect(result.community).toHaveLength(1);
+    expect(result.community[0]?.text).toBe('В подъезде найдены ключи от домофона');
+    expect(result.messageCount).toBe(3);
+  });
+
+  it('updates message counts without calling model when new messages are only greetings or noise', async () => {
+    const existingSummary: SummaryResult = {
+      housing: [{ text: 'Лифт сломан', sourceMessageIds: ['m1'] }],
+      yard: [],
+      community: [],
+      period: 'today',
+      periodFrom: '2026-09-20T16:00:00.000Z',
+      periodTo: now.toISOString(),
+      messageCount: 1,
+      filteredCount: 1,
+      savedMinutes: 1,
+      generatedAt: '2026-09-20T18:00:00.000Z',
+      mode: 'yandexgpt',
+      cached: false,
+    };
+
+    const latestJob = {
+      id: 'prev-job-1',
+      mode: 'yandexgpt' as const,
+      status: 'done' as const,
+      result: existingSummary,
+      messageCount: 1,
+      periodFrom: new Date('2026-09-20T16:00:00.000Z'),
+      periodTo: now,
+      createdAt: new Date('2026-09-20T18:00:00.000Z'),
+      completedAt: new Date('2026-09-20T18:00:01.000Z'),
+    };
+
+    const allMessages = [
+      { id: 'm1', senderDisplayName: 'Иван', text: 'Лифт сломан', sentAt: now },
+      { id: 'm2', senderDisplayName: 'Анна', text: 'Всем привет!', sentAt: now },
+      { id: 'm3', senderDisplayName: 'Олег', text: 'Спасибо!', sentAt: now },
+    ];
+
+    const repo = repository({
+      findCached: vi.fn(async () => null),
+      findLatestJob: vi.fn(async () => latestJob),
+      listMessages: vi.fn(async () => allMessages),
+    });
+
+    const model = { summarize: vi.fn(async () => ({ housing: [], yard: [], community: [] })) };
+    const service = new SummaryService(repo, model, 777n, 600, () => now);
+    const result = await service.generate(42n, 'today');
+
+    expect(model.summarize).not.toHaveBeenCalled();
+    expect(result.messageCount).toBe(3);
+    expect(result.housing).toHaveLength(1);
+  });
+
+  it('upgrades to full AI summary when previous summary was fallback and model is now available', async () => {
+    const fallbackSummary: SummaryResult = {
+      housing: [],
+      yard: [],
+      community: [{ text: 'Не работает лифт', sourceMessageIds: ['m1'] }],
+      period: 'today',
+      periodFrom: '2026-09-20T16:00:00.000Z',
+      periodTo: now.toISOString(),
+      messageCount: 1,
+      filteredCount: 1,
+      savedMinutes: 1,
+      generatedAt: '2026-09-20T18:00:00.000Z',
+      mode: 'fallback',
+      cached: false,
+    };
+
+    const latestJob = {
+      id: 'fallback-job-1',
+      mode: 'fallback' as const,
+      status: 'done' as const,
+      result: fallbackSummary,
+      messageCount: 1,
+      periodFrom: new Date('2026-09-20T16:00:00.000Z'),
+      periodTo: now,
+      createdAt: new Date('2026-09-20T18:00:00.000Z'),
+      completedAt: new Date('2026-09-20T18:00:01.000Z'),
+    };
+
+    const allMessages = [
+      { id: 'm1', senderDisplayName: 'Иван', text: 'В третьем подъезде сломался лифт', sentAt: now },
+      { id: 'm2', senderDisplayName: 'Ольга', text: 'Бежевая тиида перекрыла выезд', sentAt: now },
+    ];
+
+    const repo = repository({
+      findCached: vi.fn(async () => null),
+      findLatestJob: vi.fn(async () => latestJob),
+      listMessages: vi.fn(async () => allMessages),
+    });
+
+    const model = {
+      summarize: vi.fn(async () => ({
+        housing: [{ text: 'Не работает лифт в 3 подъезде', sourceMessageIds: ['m1'] }],
+        yard: [{ text: 'Бежевая Tiida перекрыла выезд', sourceMessageIds: ['m2'] }],
+        community: [],
+      })),
+    };
+
+    const service = new SummaryService(repo, model, 777n, 600, () => now);
+    const result = await service.generate(42n, 'today');
+
+    expect(result.mode).toBe('yandexgpt');
+    expect(model.summarize).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({ id: 'm1' }),
+      expect.objectContaining({ id: 'm2' }),
+    ]));
+  });
 });

@@ -2,6 +2,7 @@ import type { SummaryCategories, SummaryPeriod, SummaryResult } from '@quiet-cha
 
 import {
   createFallbackSummary,
+  deduplicateAndCleanCategories,
   estimateSavedMinutes,
   getSummaryPeriodRange,
   prepareSummaryMessages,
@@ -18,6 +19,18 @@ export interface SummaryHome {
   membershipVerifiedAt?: Date | null;
 }
 
+export interface SummaryJobRecord {
+  id: string;
+  mode: 'yandexgpt' | 'fallback' | null;
+  status: 'pending' | 'processing' | 'done' | 'failed';
+  result: SummaryResult | null;
+  messageCount: number;
+  periodFrom: Date;
+  periodTo: Date;
+  createdAt: Date;
+  completedAt: Date | null;
+}
+
 export interface SummaryRepository {
   findHomeForResident(maxChatId: bigint, maxUserId: bigint): Promise<SummaryHome | null>;
   findHomesForResident?(maxUserId: bigint): Promise<SummaryHome[]>;
@@ -25,6 +38,7 @@ export interface SummaryRepository {
   revokeMembership?(homeId: string, maxUserId: bigint): Promise<void>;
   verifyMembership?(homeId: string, maxUserId: bigint): Promise<void>;
   findCached(homeId: string, maxUserId: bigint, period: SummaryPeriod, createdAfter: Date): Promise<SummaryResult | null>;
+  findLatestJob?(homeId: string, period: SummaryPeriod, from: Date): Promise<SummaryJobRecord | null>;
   listMessages(homeId: string, from: Date, to: Date): Promise<SummarySourceMessage[]>;
   createJob(input: { homeId: string; requestedBy: bigint; from: Date; to: Date; messageCount: number }): Promise<string>;
   completeJob(id: string, mode: 'yandexgpt' | 'fallback', result: SummaryResult, error: string | null): Promise<void>;
@@ -134,6 +148,107 @@ export class SummaryService {
     }
 
     const sourceMessages = await this.repository.listMessages(home.id, from, to);
+    if (sourceMessages.length === 0) {
+      return {
+        housing: [],
+        yard: [],
+        community: [],
+        period,
+        periodFrom: from.toISOString(),
+        periodTo: to.toISOString(),
+        messageCount: 0,
+        filteredCount: 0,
+        savedMinutes: 0,
+        generatedAt: now.toISOString(),
+        mode: 'yandexgpt',
+        cached: false,
+        homeTitle: home.title,
+      };
+    }
+
+    // Check if we can perform incremental summarization:
+    const latestJob = this.repository.findLatestJob
+      ? await this.repository.findLatestJob(home.id, period, from)
+      : null;
+
+    const canDoIncremental =
+      latestJob &&
+      latestJob.status === 'done' &&
+      latestJob.result &&
+      (latestJob.mode !== 'fallback' || !this.model) &&
+      sourceMessages.length > latestJob.messageCount;
+
+    if (canDoIncremental && latestJob.result) {
+      const prevResult = latestJob.result;
+      const newMessages = sourceMessages.slice(latestJob.messageCount);
+      const preparedNew = prepareSummaryMessages(newMessages);
+
+      if (preparedNew.length === 0) {
+        return {
+          ...prevResult,
+          messageCount: sourceMessages.length,
+          filteredCount: sourceMessages.length,
+          savedMinutes: estimateSavedMinutes(sourceMessages.length),
+          periodTo: to.toISOString(),
+          generatedAt: now.toISOString(),
+          cached: false,
+          homeTitle: home.title,
+        };
+      }
+
+      let newCategories: SummaryCategories;
+      let mode: 'yandexgpt' | 'fallback' = prevResult.mode;
+      let error: string | null = null;
+      try {
+        if (!this.model) throw new Error('YandexGPT is not configured');
+        newCategories = await this.model.summarize(preparedNew);
+        mode = 'yandexgpt';
+      } catch (cause) {
+        console.warn(JSON.stringify({
+          level: 'warn',
+          service: 'worker',
+          message: 'YandexGPT failed on new messages, using fallback for incremental items',
+          error: cause instanceof Error ? cause.message : String(cause),
+        }));
+        mode = prevResult.mode;
+        error = (cause instanceof Error ? cause.message : 'Unknown YandexGPT error').slice(0, 2_000);
+        newCategories = createFallbackSummary(preparedNew);
+      }
+
+      const mergedCategories: SummaryCategories = {
+        housing: [...prevResult.housing, ...newCategories.housing],
+        yard: [...prevResult.yard, ...newCategories.yard],
+        community: [...prevResult.community, ...newCategories.community],
+      };
+      const cleaned = deduplicateAndCleanCategories(mergedCategories);
+
+      const result: SummaryResult = {
+        ...cleaned,
+        period,
+        periodFrom: from.toISOString(),
+        periodTo: to.toISOString(),
+        messageCount: sourceMessages.length,
+        filteredCount: sourceMessages.length,
+        savedMinutes: estimateSavedMinutes(sourceMessages.length),
+        generatedAt: now.toISOString(),
+        mode,
+        cached: false,
+        homeTitle: home.title,
+        lastMessageId: sourceMessages.at(-1)?.id,
+        lastMessageSentAt: sourceMessages.at(-1)?.sentAt.toISOString(),
+      };
+
+      const jobId = await this.repository.createJob({
+        homeId: home.id,
+        requestedBy: maxUserId,
+        from,
+        to,
+        messageCount: sourceMessages.length,
+      });
+      await this.repository.completeJob(jobId, mode, result, error);
+      return result;
+    }
+
     const prepared = prepareSummaryMessages(sourceMessages);
     const jobId = await this.repository.createJob({
       homeId: home.id,
@@ -161,8 +276,9 @@ export class SummaryService {
       categories = createFallbackSummary(prepared);
     }
 
+    const cleaned = deduplicateAndCleanCategories(categories);
     const result: SummaryResult = {
-      ...categories,
+      ...cleaned,
       period,
       periodFrom: from.toISOString(),
       periodTo: to.toISOString(),
@@ -173,6 +289,8 @@ export class SummaryService {
       mode,
       cached: false,
       homeTitle: home.title,
+      lastMessageId: sourceMessages.at(-1)?.id,
+      lastMessageSentAt: sourceMessages.at(-1)?.sentAt.toISOString(),
     };
     await this.repository.completeJob(jobId, mode, result, error);
     return result;

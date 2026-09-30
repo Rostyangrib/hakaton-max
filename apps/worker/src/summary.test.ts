@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  cleanItemText,
   createFallbackSummary,
+  deduplicateAndCleanCategories,
   estimateSavedMinutes,
   getSummaryPeriodRange,
   prepareSummaryMessages,
@@ -28,6 +30,21 @@ describe('summary preparation', () => {
     expect(prepared.length).toBeLessThan(150);
     expect(prepared.some((item) => item.text.includes('Всем привет'))).toBe(false);
     expect(prepared[0]?.sourceMessageIds?.length).toBeGreaterThan(1);
+  });
+
+  it('filters out spam and provocative trolling messages that trigger AI content filters', () => {
+    const input = [
+      message('1', 'Всем привет!'),
+      message('2', 'дайте контакт альтушки'),
+      message('3', 'кто может скинуть тг дающей альтушки?'),
+      message('4', 'павел спит с моей девушкой'),
+      message('5', 'кто может одолжить соли?'),
+      message('6', 'В третьем подъезде сломался домофон'),
+    ];
+    const prepared = prepareSummaryMessages(input);
+    expect(prepared).toHaveLength(1);
+    expect(prepared[0]?.id).toBe('6');
+    expect(prepared[0]?.text).toContain('сломался домофон');
   });
 
   it('builds a deterministic three-category fallback and renders empty categories', () => {
@@ -59,5 +76,106 @@ describe('summary preparation', () => {
       generatedAt: at.toISOString(), mode: 'yandexgpt', cached: false,
     });
     expect(rendered.length).toBeLessThanOrEqual(4_000);
+  });
+});
+
+describe('cleanItemText and citation stripping', () => {
+  it('strips UUID brackets and normalizes punctuation', () => {
+    const raw = 'Замечания по парковке автомобилей [0d55612f-bf7a-43a1-ba75-269c55939522], [4289508e-0cee-4a9e-9613-82c5bdd3834e].';
+    const { cleanText, extractedIds } = cleanItemText(raw);
+    expect(cleanText).toBe('Замечания по парковке автомобилей.');
+    expect(extractedIds).toEqual(['0d55612f-bf7a-43a1-ba75-269c55939522', '4289508e-0cee-4a9e-9613-82c5bdd3834e']);
+  });
+
+  it('strips short IDs like [1], [#2], [m3] and bare UUIDs', () => {
+    const raw = 'Соседи жалуются на затопление [1], в подъезде найдены ключи [#2]';
+    const { cleanText, extractedIds } = cleanItemText(raw);
+    expect(cleanText).toBe('Соседи жалуются на затопление, в подъезде найдены ключи');
+    expect(extractedIds).toEqual(['1', '2']);
+  });
+
+  it('renderSummary strips any bracketed citations if present in raw item text', () => {
+    const rendered = renderSummary({
+      housing: [],
+      yard: [{ text: 'Замечания по парковке автомобилей [0d55612f-bf7a-43a1-ba75-269c55939522].', sourceMessageIds: ['0d55612f-bf7a-43a1-ba75-269c55939522'] }],
+      community: [],
+      period: 'today',
+      periodFrom: at.toISOString(),
+      periodTo: at.toISOString(),
+      messageCount: 1,
+      filteredCount: 1,
+      savedMinutes: 1,
+      generatedAt: at.toISOString(),
+      mode: 'yandexgpt',
+      cached: false,
+      homeTitle: 'Тест 2',
+    });
+    expect(rendered).toContain('• Замечания по парковке автомобилей.');
+    expect(rendered).not.toContain('0d55612f');
+    expect(rendered).not.toContain('[');
+  });
+});
+
+describe('deduplicateAndCleanCategories and cross-category exclusivity', () => {
+  it('strictly enforces category priority and prevents duplicates across categories', () => {
+    const rawCategories = {
+      housing: [
+        { text: '67 квартира вы топите соседей снизу', sourceMessageIds: ['m1'] },
+      ],
+      yard: [
+        { text: 'Красный вольво стоит в неположенном месте', sourceMessageIds: ['m2'] },
+        { text: 'Бежевая тиида стоит на тротуаре', sourceMessageIds: ['m3'] },
+      ],
+      community: [
+        { text: '67 квартира вы топите соседей снизу быстро сюда', sourceMessageIds: ['m1'] },
+        { text: 'чёрный карандаш мешает моей жене выехать', sourceMessageIds: ['m4'] },
+        { text: 'Красный вольво стоит в неположенном месте', sourceMessageIds: ['m2'] },
+        { text: 'Бежевая тиида стоит на тротуаре', sourceMessageIds: ['m3'] },
+        { text: 'Нашел ключи в подъезде', sourceMessageIds: ['m5'] },
+      ],
+    };
+
+    const cleaned = deduplicateAndCleanCategories(rawCategories);
+
+    // Housing keeps the leak
+    expect(cleaned.housing).toHaveLength(1);
+    expect(cleaned.housing[0]?.text).toContain('67 квартира');
+
+    // Yard keeps parking
+    expect(cleaned.yard).toHaveLength(2);
+    expect(cleaned.yard.some((item) => item.text.includes('вольво'))).toBe(true);
+    expect(cleaned.yard.some((item) => item.text.includes('тиида'))).toBe(true);
+
+    // Community must NOT have duplicates of m1, m2, m3
+    expect(cleaned.community.some((item) => item.text.includes('67 квартира'))).toBe(false);
+    expect(cleaned.community.some((item) => item.text.includes('вольво'))).toBe(false);
+    expect(cleaned.community.some((item) => item.text.includes('тиида'))).toBe(false);
+
+    // Community keeps unique neighbor issues
+    expect(cleaned.community.some((item) => item.text.includes('карандаш'))).toBe(true);
+    expect(cleaned.community.some((item) => item.text.includes('ключи'))).toBe(true);
+  });
+
+  it('fallback accurately categorizes leaks into housing and car brands into yard without duplication', () => {
+    const rawMessages: SummarySourceMessage[] = [
+      message('1', '67 квартира вы топите соседей снизу быстро сюда'),
+      message('2', 'Соседская камри уже меня достала'),
+      message('3', 'Красный вольво стоит в неположенном месте'),
+      message('4', 'Бежевая тиида стоит на тротуаре'),
+      message('5', 'Нашел ключи в подъезде'),
+    ];
+
+    const fallback = createFallbackSummary(rawMessages);
+
+    expect(fallback.housing).toHaveLength(1);
+    expect(fallback.housing[0]?.text).toContain('67 квартира');
+
+    expect(fallback.yard).toHaveLength(3);
+    expect(fallback.yard.some((i) => i.text.includes('камри'))).toBe(true);
+    expect(fallback.yard.some((i) => i.text.includes('вольво'))).toBe(true);
+    expect(fallback.yard.some((i) => i.text.includes('тиида'))).toBe(true);
+
+    expect(fallback.community).toHaveLength(1);
+    expect(fallback.community[0]?.text).toContain('ключи');
   });
 });

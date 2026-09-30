@@ -1,10 +1,10 @@
-import { and, asc, eq, gte, isNotNull, isNull, lte } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, isNotNull, isNull, lte } from 'drizzle-orm';
 
 import type { createDatabase } from '@quiet-chat/database';
 import { homes, messages, residentProfiles, summaryJobs } from '@quiet-chat/database';
 import { summaryResultSchema, type SummaryPeriod, type SummaryResult } from '@quiet-chat/shared';
 
-import type { SummaryRepository } from './summary-service.js';
+import type { SummaryJobRecord, SummaryRepository } from './summary-service.js';
 
 type DatabaseConnection = ReturnType<typeof createDatabase>;
 
@@ -199,6 +199,47 @@ export class PostgresSummaryRepository implements SummaryRepository {
     }).returning({ id: summaryJobs.id });
     if (!row) throw new Error('Summary job was not created');
     return row.id;
+  }
+
+  async findLatestJob(homeId: string, period: SummaryPeriod, from: Date): Promise<SummaryJobRecord | null> {
+    const rows = await this.database.db
+      .select({
+        id: summaryJobs.id,
+        mode: summaryJobs.mode,
+        status: summaryJobs.status,
+        result: summaryJobs.result,
+        messageCount: summaryJobs.messageCount,
+        periodFrom: summaryJobs.periodFrom,
+        periodTo: summaryJobs.periodTo,
+        createdAt: summaryJobs.createdAt,
+        completedAt: summaryJobs.completedAt,
+      })
+      .from(summaryJobs)
+      .where(and(
+        eq(summaryJobs.homeId, homeId),
+        eq(summaryJobs.status, 'done'),
+        eq(summaryJobs.periodFrom, from),
+        isNotNull(summaryJobs.result),
+      ))
+      .orderBy(desc(summaryJobs.createdAt))
+      .limit(1);
+
+    const row = rows[0];
+    if (!row) return null;
+    const parsed = summaryResultSchema.safeParse(row.result);
+    if (!parsed.success) return null;
+
+    return {
+      id: row.id,
+      mode: row.mode,
+      status: row.status,
+      result: parsed.data,
+      messageCount: row.messageCount,
+      periodFrom: row.periodFrom,
+      periodTo: row.periodTo,
+      createdAt: row.createdAt,
+      completedAt: row.completedAt,
+    };
   }
 
   async completeJob(id: string, mode: 'yandexgpt' | 'fallback', result: SummaryResult, error: string | null): Promise<void> {
