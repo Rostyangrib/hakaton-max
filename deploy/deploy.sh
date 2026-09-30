@@ -13,7 +13,7 @@ fi
 
 if [ "${SKIP_GIT_UPDATE:-0}" != "1" ]; then
   if git diff-index --quiet HEAD --; then
-    target_branch="${QUIET_CHAT_BRANCH:-dev-chat-max}"
+    target_branch="${QUIET_CHAT_BRANCH:-$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo dev-chat-max)}"
     git fetch origin "$target_branch"
     git checkout "$target_branch"
     git pull --ff-only origin "$target_branch"
