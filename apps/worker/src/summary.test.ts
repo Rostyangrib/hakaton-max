@@ -199,5 +199,25 @@ describe('deduplicateAndCleanCategories and cross-category exclusivity', () => {
     expect(cleaned.community).toHaveLength(1);
     expect(cleaned.community[0]?.text).toBe('В подъезде найдены ключи от домофона');
   });
+
+  it('rebalances transport from community to yard category', () => {
+    const rawCategories = {
+      housing: [],
+      yard: [],
+      community: [
+        { text: 'Замечания по транспорту во дворе', sourceMessageIds: ['m1'] },
+        { text: 'Собрание жильцов дома в воскресенье', sourceMessageIds: ['m2'] },
+      ],
+    };
+
+    const cleaned = deduplicateAndCleanCategories(rawCategories);
+
+    expect(cleaned.housing).toHaveLength(0);
+    expect(cleaned.yard).toHaveLength(1);
+    expect(cleaned.yard[0]?.text).toBe('Замечания по транспорту во дворе');
+    expect(cleaned.community).toHaveLength(1);
+    expect(cleaned.community[0]?.text).toBe('Собрание жильцов дома в воскресенье');
+  });
 });
+
 

@@ -107,7 +107,7 @@ export function cleanItemText(rawText: string): { cleanText: string; extractedId
 }
 
 const housingKeywordsForRebalancing = /(?:водоснабжен|отоплен|канализац|сантехник|электрик|протеч|протек|аварийн|затоп|залив|капает|прорв|стояк|батаре|топ[яи])\w*/iu;
-const yardKeywordsForRebalancing = /(?:парковк|стоянк|автомоб|шлагбаум|эвакуатор|перекрыл|заблокиров|тротуар|газон|госномер|камри|солярис|рио|веста|бмв|мерс|ауди|вольво|тиида|тигуан)\w*/iu;
+const yardKeywordsForRebalancing = /(?:парковк|стоянк|автомоб|транспорт|шлагбаум|эвакуатор|перекрыл|заблокиров|тротуар|газон|госномер|камри|солярис|рио|веста|бмв|мерс|ауди|вольво|тиида|тигуан)\w*/iu;
 
 export function deduplicateAndCleanCategories(categories: SummaryCategories): SummaryCategories {
   const categoryOrder: Array<keyof SummaryCategories> = ['housing', 'yard', 'community'];
