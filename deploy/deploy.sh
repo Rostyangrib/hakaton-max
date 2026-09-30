@@ -23,7 +23,7 @@ if [ "${SKIP_GIT_UPDATE:-0}" != "1" ]; then
 fi
 
 docker compose --env-file "$env_file" -f compose.production.yaml build --pull
-docker compose --env-file "$env_file" -f compose.production.yaml up -d --remove-orphans
+docker compose --env-file "$env_file" -f compose.production.yaml up -d --remove-orphans --force-recreate
 docker compose --env-file "$env_file" -f compose.production.yaml ps
 
 if [ "${AUTO_REGISTER_WEBHOOK:-1}" = "1" ] && [ -f "$project_dir/deploy/scripts/manage-webhook.sh" ]; then
